@@ -675,3 +675,203 @@ body {
   transform: scale(1.2);
   box-shadow: 0 0 15px var(--primary-glow);
 }
+
+/* Fibonacci Settings Popover */
+.fibo-settings-popover {
+  position: absolute;
+  top: 0;
+  left: calc(100% + 8px);
+  z-index: 50;
+  width: 260px;
+  background: var(--bg-deep);
+  border: 1px solid var(--glass-edge);
+  border-radius: 14px;
+  padding: 14px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(16px);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.fibo-settings-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--glass-edge);
+}
+
+.fibo-settings-title {
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--text-dim);
+}
+
+.fibo-settings-icon-btn {
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-dim);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.fibo-settings-icon-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-main);
+}
+
+.fibo-settings-list {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.fibo-settings-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.fibo-color-input {
+  width: 24px;
+  height: 24px;
+  border: none;
+  border-radius: 6px;
+  padding: 0;
+  cursor: pointer;
+  background: transparent;
+  flex-shrink: 0;
+}
+
+.fibo-color-input::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+
+.fibo-color-input::-webkit-color-swatch {
+  border: 1px solid var(--glass-edge);
+  border-radius: 5px;
+}
+
+.fibo-value-input {
+  flex: 1;
+  min-width: 0;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--glass-edge);
+  border-radius: 7px;
+  padding: 5px 8px;
+  color: var(--text-main);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.75rem;
+  transition: border-color 0.15s;
+}
+
+.fibo-value-input:focus {
+  outline: none;
+  border-color: var(--primary);
+}
+
+.fibo-pct-label {
+  font-size: 0.65rem;
+  color: var(--text-ghost);
+  font-family: 'JetBrains Mono', monospace;
+  min-width: 40px;
+  text-align: right;
+}
+
+.fibo-remove-btn {
+  width: 20px;
+  height: 20px;
+  border-radius: 5px;
+  border: none;
+  background: transparent;
+  color: var(--text-ghost);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.15s;
+  flex-shrink: 0;
+}
+
+.fibo-remove-btn:hover:not(:disabled) {
+  background: rgba(244, 63, 94, 0.15);
+  color: var(--bear);
+}
+
+.fibo-remove-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.fibo-add-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 6px 0;
+  border-radius: 8px;
+  border: 1px dashed var(--glass-edge);
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 0.7rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.fibo-add-btn:hover {
+  border-color: var(--primary);
+  color: var(--primary);
+  background: rgba(59, 130, 246, 0.06);
+}
+
+.fibo-settings-actions {
+  display: flex;
+  gap: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--glass-edge);
+}
+
+.fibo-cancel-btn,
+.fibo-save-btn {
+  flex: 1;
+  padding: 6px 0;
+  border-radius: 8px;
+  border: none;
+  font-size: 0.72rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.fibo-cancel-btn {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text-dim);
+  border: 1px solid var(--glass-edge);
+}
+
+.fibo-cancel-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-main);
+}
+
+.fibo-save-btn {
+  background: var(--primary);
+  color: white;
+  box-shadow: 0 2px 8px var(--primary-glow);
+}
+
+.fibo-save-btn:hover {
+  filter: brightness(1.1);
+}

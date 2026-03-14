@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Minus, MousePointer2, TrendingUp, RectangleHorizontal,
   GitBranch, Undo2, Trash2, Loader2, Rewind,
-  ArrowBigLeftDash, ArrowBigRightDash, AlertTriangle,
+  ArrowBigLeftDash, ArrowBigRightDash, AlertTriangle, Settings2,
 } from 'lucide-react';
 import TradingChart from './components/TradingChart';
 import Sidebar from './components/Sidebar';
@@ -10,6 +10,7 @@ import Header from './components/Header';
 import ExecutionPanel from './components/ExecutionPanel';
 import TradeHistory from './components/TradeHistory';
 import MetricsSummary from './components/MetricsSummary';
+import FiboSettings, { loadFiboLevels } from './components/FiboSettings';
 import { useBacktest } from './hooks/useBacktest';
 import { useChunkedData } from './hooks/useChunkedData';
 
@@ -21,6 +22,8 @@ const SYMBOLS = [
 
 function App() {
   const [drawingMode, setDrawingMode] = useState(null);
+  const [fiboLevels, setFiboLevels] = useState(loadFiboLevels);
+  const [showFiboSettings, setShowFiboSettings] = useState(false);
   const [selectedSymbol, setSelectedSymbol] = useState('eurusd');
   const [selectedTF, setSelectedTF] = useState('H1');
   const [replayStartInput, setReplayStartInput] = useState(50);
@@ -308,6 +311,23 @@ function App() {
                 >
                   <GitBranch size={18} />
                 </button>
+                <div style={{ position: 'relative' }}>
+                  <button
+                    onClick={() => setShowFiboSettings(v => !v)}
+                    className={`control-btn ${showFiboSettings ? 'active' : ''}`}
+                    title="Configurar niveles Fibonacci"
+                    style={{ width: 28, height: 28 }}
+                  >
+                    <Settings2 size={13} />
+                  </button>
+                  {showFiboSettings && (
+                    <FiboSettings
+                      levels={fiboLevels}
+                      onChange={setFiboLevels}
+                      onClose={() => setShowFiboSettings(false)}
+                    />
+                  )}
+                </div>
                 <div className="controls-divider" />
                 <button
                   onClick={() => chartComponentRef.current?.removeLastDrawing()}
@@ -354,6 +374,7 @@ function App() {
                   minMove={symbolInfo?.minMove || 0.00001}
                   onSLTPDrag={replayActive ? handleSLTPDrag : undefined}
                   dataKey={selectedSymbol}
+                  fiboLevels={fiboLevels}
                 />
               </div>
 

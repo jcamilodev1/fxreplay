@@ -1,8 +1,106 @@
 import React, { useEffect, useRef, forwardRef, useImperativeHandle } from 'react';
 import { createChart, CandlestickSeries, LineSeries } from 'lightweight-charts';
 
-const FIBO_LEVELS = [0, 0.236, 0.382, 0.5, 0.618, 0.786, 1];
-const FIBO_COLORS = ['#ef4444', '#f97316', '#eab308', '#84cc16', '#06b6d4', '#8b5cf6', '#ec4899'];
+function hexToFill(hex, alpha = 0.08) {
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+  return `rgba(${r},${g},${b},${alpha})`;
+}
+
+class FibonacciRenderer {
+  constructor(source) { this._source = source; }
+  draw(target) {
+    target.useBitmapCoordinateSpace((scope) => {
+      const { context: ctx, horizontalPixelRatio: hr, verticalPixelRatio: vr } = scope;
+      const s = this._source;
+      if (!s._chart || !s._series) return;
+
+      const x1 = s._chart.timeScale().timeToCoordinate(s._p1.time);
+      const x2 = s._chart.timeScale().timeToCoordinate(s._p2.time);
+      if (x1 == null || x2 == null) return;
+
+      const left = Math.round(Math.min(x1, x2) * hr);
+      const right = Math.round(Math.max(x1, x2) * hr);
+      const w = right - left;
+      if (w < 2) return;
+
+      const coords = s._levels.map(lv => {
+        const y = s._series.priceToCoordinate(lv.price);
+        return y != null ? Math.round(y * vr) : null;
+      });
+
+      for (let i = 0; i < coords.length - 1; i++) {
+        if (coords[i] == null || coords[i + 1] == null) continue;
+        const top = Math.min(coords[i], coords[i + 1]);
+        const h = Math.abs(coords[i + 1] - coords[i]);
+        ctx.fillStyle = hexToFill(s._levels[i]?.color || '#ffffff');
+        ctx.fillRect(left, top, w, h);
+      }
+
+      ctx.font = `${Math.round(11 * hr)}px 'JetBrains Mono', monospace`;
+      ctx.textBaseline = 'middle';
+
+      for (let i = 0; i < coords.length; i++) {
+        if (coords[i] == null) continue;
+        const lv = s._levels[i];
+        const y = coords[i];
+
+        ctx.strokeStyle = lv.color;
+        ctx.globalAlpha = s._preview ? 0.45 : 0.85;
+        ctx.lineWidth = Math.max(1, Math.round(hr));
+        ctx.setLineDash(s._preview ? [4 * hr, 4 * hr] : [6 * hr, 3 * hr]);
+        ctx.beginPath();
+        ctx.moveTo(left, y);
+        ctx.lineTo(right, y);
+        ctx.stroke();
+
+        ctx.setLineDash([]);
+        ctx.globalAlpha = s._preview ? 0.4 : 0.8;
+        ctx.fillStyle = lv.color;
+        const label = s._preview
+          ? `${(lv.level * 100).toFixed(1)}%`
+          : `${(lv.level * 100).toFixed(1)}%  ${lv.price.toFixed(s._dec)}`;
+        ctx.fillText(label, left + 6 * hr, y - 6 * vr);
+      }
+      ctx.globalAlpha = 1;
+    });
+  }
+}
+
+class FibonacciPaneView {
+  constructor(source) { this._source = source; this._renderer = new FibonacciRenderer(source); }
+  update() {}
+  renderer() { return this._renderer; }
+}
+
+class FibonacciPrimitive {
+  constructor(p1, p2, levels, dec, preview = false) {
+    this._p1 = p1;
+    this._p2 = p2;
+    this._levels = levels;
+    this._dec = dec;
+    this._preview = preview;
+    this._chart = null;
+    this._series = null;
+    this._requestUpdate = null;
+    this._paneViews = [new FibonacciPaneView(this)];
+  }
+  attached({ chart, series, requestUpdate }) {
+    this._chart = chart;
+    this._series = series;
+    this._requestUpdate = requestUpdate;
+  }
+  detached() { this._chart = null; this._series = null; this._requestUpdate = null; }
+  updateAllViews() {}
+  paneViews() { return this._paneViews; }
+  updatePoints(p1, p2, levels) {
+    this._p1 = p1;
+    this._p2 = p2;
+    this._levels = levels;
+    if (this._requestUpdate) this._requestUpdate();
+  }
+}
 
 class RectangleRenderer {
   constructor(source) { this._source = source; }
@@ -68,7 +166,7 @@ class RectanglePrimitive {
 const TradingChart = forwardRef(({
   data, drawingMode, activePosition,
   onNeedMoreData, focusIndex, priceDecimals = 5, minMove = 0.00001,
-  onSLTPDrag, dataKey,
+  onSLTPDrag, dataKey, fiboLevels,
 }, ref) => {
   const chartContainerRef = useRef();
   const chartRef = useRef();
@@ -89,6 +187,8 @@ const TradingChart = forwardRef(({
   const slLineRef = useRef(null);
   const tpLineRef = useRef(null);
 
+  const fiboLevelsRef = useRef(fiboLevels);
+
   const drawingsRef = useRef([]);
   const firstPointRef = useRef(null);
   const cleanupPreviewRef = useRef(null);
@@ -106,6 +206,7 @@ const TradingChart = forwardRef(({
   useEffect(() => { dataRef.current = data; }, [data]);
   useEffect(() => { activePositionRef.current = activePosition; }, [activePosition]);
   useEffect(() => { onSLTPDragRef.current = onSLTPDrag; }, [onSLTPDrag]);
+  useEffect(() => { fiboLevelsRef.current = fiboLevels; }, [fiboLevels]);
 
   useEffect(() => {
     priceDecimalsRef.current = priceDecimals;
@@ -232,10 +333,12 @@ const TradingChart = forwardRef(({
     const buildFiboLevels = (startPrice, endPrice, dec) => {
       const diff = endPrice - startPrice;
       if (Math.abs(diff) === 0) return null;
-      return FIBO_LEVELS.map((level, i) => {
-        const price = parseFloat((endPrice - diff * level).toFixed(dec));
-        return { level, price, color: FIBO_COLORS[i] };
-      });
+      const cfg = fiboLevelsRef.current || [];
+      return cfg.map(lv => ({
+        level: lv.value,
+        price: parseFloat((endPrice - diff * lv.value).toFixed(dec)),
+        color: lv.color,
+      }));
     };
 
     const DRAWING_SERIES_OPTS = {
@@ -289,22 +392,12 @@ const TradingChart = forwardRef(({
         case 'fibonacci': {
           const levels = buildFiboLevels(fp.price, cur, dec);
           if (!levels) break;
-          if (previewLines.length === 0) {
-            levels.forEach(({ level, price: lp, color }) => {
-              previewLines.push(candlestickSeries.createPriceLine({
-                price: lp, color: color + '88',
-                lineWidth: 1, lineStyle: 3,
-                axisLabelVisible: true,
-                title: `${(level * 100).toFixed(1)}%`,
-              }));
-            });
+          const corner2 = { time: param.time, price: cur };
+          if (!previewPrimitive) {
+            previewPrimitive = new FibonacciPrimitive(fp, corner2, levels, dec, true);
+            candlestickSeries.attachPrimitive(previewPrimitive);
           } else {
-            levels.forEach(({ level, price: lp }, i) => {
-              previewLines[i]?.applyOptions({
-                price: lp,
-                title: `${(level * 100).toFixed(1)}%`,
-              });
-            });
+            previewPrimitive.updatePoints(fp, corner2, levels);
           }
           break;
         }
@@ -391,17 +484,14 @@ const TradingChart = forwardRef(({
             const levels = buildFiboLevels(fp.price, rounded, dec);
             if (!levels) break;
 
-            const items = [];
-            levels.forEach(({ level, price: lp, color }) => {
-              const pl = candlestickSeries.createPriceLine({
-                price: lp, color,
-                lineWidth: 1, lineStyle: 2,
-                axisLabelVisible: true,
-                title: `${(level * 100).toFixed(1)}%  ${lp.toFixed(dec)}`,
-              });
-              items.push({ kind: 'priceLine', ref: pl });
+            const fib = new FibonacciPrimitive(
+              fp, { time: param.time, price: rounded }, levels, dec, false
+            );
+            candlestickSeries.attachPrimitive(fib);
+            drawingsRef.current.push({
+              type: 'fibonacci',
+              items: [{ kind: 'primitive', ref: fib }],
             });
-            drawingsRef.current.push({ type: 'fibonacci', items });
           }
           break;
         }
