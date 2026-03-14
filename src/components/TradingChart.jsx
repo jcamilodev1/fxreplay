@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, forwardRef, useImperativeHandle } from 'react';
-import { createChart, CandlestickSeries, LineSeries } from 'lightweight-charts';
+import { createChart, CandlestickSeries } from 'lightweight-charts';
 
 function hexToFill(hex, alpha = 0.08) {
   const r = parseInt(hex.slice(1, 3), 16);
@@ -98,6 +98,75 @@ class FibonacciPrimitive {
     this._p1 = p1;
     this._p2 = p2;
     this._levels = levels;
+    if (this._requestUpdate) this._requestUpdate();
+  }
+}
+
+class TrendlineRenderer {
+  constructor(source) { this._source = source; }
+  draw(target) {
+    target.useBitmapCoordinateSpace((scope) => {
+      const { context: ctx, horizontalPixelRatio: hr, verticalPixelRatio: vr } = scope;
+      const s = this._source;
+      if (!s._chart || !s._series) return;
+
+      const x1 = s._chart.timeScale().timeToCoordinate(s._p1.time);
+      const x2 = s._chart.timeScale().timeToCoordinate(s._p2.time);
+      const y1 = s._series.priceToCoordinate(s._p1.price);
+      const y2 = s._series.priceToCoordinate(s._p2.price);
+      if (x1 == null || x2 == null || y1 == null || y2 == null) return;
+
+      ctx.strokeStyle = s._color;
+      ctx.globalAlpha = s._preview ? 0.5 : 1;
+      ctx.lineWidth = Math.max(1, Math.round((s._preview ? 1 : 2) * hr));
+      ctx.setLineDash(s._preview ? [6 * hr, 4 * hr] : []);
+      ctx.beginPath();
+      ctx.moveTo(Math.round(x1 * hr), Math.round(y1 * vr));
+      ctx.lineTo(Math.round(x2 * hr), Math.round(y2 * vr));
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.globalAlpha = 1;
+
+      const r = 4 * hr;
+      ctx.fillStyle = s._color;
+      ctx.beginPath();
+      ctx.arc(Math.round(x1 * hr), Math.round(y1 * vr), r, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(Math.round(x2 * hr), Math.round(y2 * vr), r, 0, Math.PI * 2);
+      ctx.fill();
+    });
+  }
+}
+
+class TrendlinePaneView {
+  constructor(source) { this._source = source; this._renderer = new TrendlineRenderer(source); }
+  update() {}
+  renderer() { return this._renderer; }
+}
+
+class TrendlinePrimitive {
+  constructor(p1, p2, color, preview = false) {
+    this._p1 = p1;
+    this._p2 = p2;
+    this._color = color;
+    this._preview = preview;
+    this._chart = null;
+    this._series = null;
+    this._requestUpdate = null;
+    this._paneViews = [new TrendlinePaneView(this)];
+  }
+  attached({ chart, series, requestUpdate }) {
+    this._chart = chart;
+    this._series = series;
+    this._requestUpdate = requestUpdate;
+  }
+  detached() { this._chart = null; this._series = null; this._requestUpdate = null; }
+  updateAllViews() {}
+  paneViews() { return this._paneViews; }
+  updatePoints(p1, p2) {
+    this._p1 = p1;
+    this._p2 = p2;
     if (this._requestUpdate) this._requestUpdate();
   }
 }
@@ -320,16 +389,6 @@ const TradingChart = forwardRef(({
     };
     cleanupPreviewRef.current = cleanupPreview;
 
-    const sortAndDedup = (points) => {
-      points.sort((a, b) => a.time - b.time);
-      for (let i = 1; i < points.length; i++) {
-        if (points[i].time <= points[i - 1].time) {
-          points[i] = { ...points[i], time: points[i - 1].time + 1 };
-        }
-      }
-      return points;
-    };
-
     const buildFiboLevels = (startPrice, endPrice, dec) => {
       const diff = endPrice - startPrice;
       if (Math.abs(diff) === 0) return null;
@@ -341,14 +400,7 @@ const TradingChart = forwardRef(({
       }));
     };
 
-    const DRAWING_SERIES_OPTS = {
-      lastValueVisible: false,
-      priceLineVisible: false,
-      crosshairMarkerVisible: false,
-      autoscaleInfoProvider: () => null,
-    };
-
-    // --- Live preview on crosshair move (price lines only, no setData recursion) ---
+    // --- Live preview on crosshair move ---
     chart.subscribeCrosshairMove((param) => {
       const mode = drawingModeRef.current;
       const fp = firstPointRef.current;
@@ -361,17 +413,12 @@ const TradingChart = forwardRef(({
 
       switch (mode) {
         case 'trendline': {
-          if (previewLines.length === 0) {
-            previewLines.push(candlestickSeries.createPriceLine({
-              price: fp.price, color: 'rgba(59, 130, 246, 0.4)',
-              lineWidth: 1, lineStyle: 3, axisLabelVisible: true, title: 'P1',
-            }));
-            previewLines.push(candlestickSeries.createPriceLine({
-              price: cur, color: 'rgba(59, 130, 246, 0.4)',
-              lineWidth: 1, lineStyle: 3, axisLabelVisible: true, title: 'P2',
-            }));
+          const p2 = { time: param.time, price: cur };
+          if (!previewPrimitive) {
+            previewPrimitive = new TrendlinePrimitive(fp, p2, '#3b82f6', true);
+            candlestickSeries.attachPrimitive(previewPrimitive);
           } else {
-            previewLines[1]?.applyOptions({ price: cur });
+            previewPrimitive.updatePoints(fp, p2);
           }
           break;
         }
@@ -435,17 +482,15 @@ const TradingChart = forwardRef(({
             cleanupPreview();
 
             if (fp.time === param.time && fp.price === rounded) break;
-            const pts = sortAndDedup([
-              { time: fp.time, value: fp.price },
-              { time: param.time, value: rounded },
-            ]);
 
-            const ls = chart.addSeries(LineSeries, {
-              color: '#3b82f6', lineWidth: 2, lineType: 0,
-              ...DRAWING_SERIES_OPTS,
+            const line = new TrendlinePrimitive(
+              fp, { time: param.time, price: rounded }, '#3b82f6', false
+            );
+            candlestickSeries.attachPrimitive(line);
+            drawingsRef.current.push({
+              type: 'trendline',
+              items: [{ kind: 'primitive', ref: line }],
             });
-            ls.setData(pts);
-            drawingsRef.current.push({ type: 'trendline', items: [{ kind: 'series', ref: ls }] });
           }
           break;
         }
