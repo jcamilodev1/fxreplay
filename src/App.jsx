@@ -20,6 +20,11 @@ const SYMBOLS = [
   { id: 'us100',  label: 'US100',   decimals: 2, pipMult: 1,     minMove: 0.01,    pipValue: 1,  defaultSL: 50,      defaultTP: 100 },
 ];
 
+const TF_SL_SCALE = {
+  M1: 0.15, M5: 0.3, M15: 0.5, M30: 0.7,
+  H1: 1, H4: 2, D1: 5, W1: 10,
+};
+
 function App() {
   const [drawingMode, setDrawingMode] = useState(null);
   const [fiboLevels, setFiboLevels] = useState(loadFiboLevels);
@@ -30,6 +35,11 @@ function App() {
   const [selectingStart, setSelectingStart] = useState(false);
   const [lotSize, setLotSize] = useState(0.01);
   const [lotInput, setLotInput] = useState('0.01');
+  const [riskMode, setRiskMode] = useState('lots');
+  const [riskPercent, setRiskPercent] = useState(1);
+  const [riskPercentInput, setRiskPercentInput] = useState('1');
+  const [accountBalance, setAccountBalance] = useState(10000);
+  const [balanceInput, setBalanceInput] = useState('10000');
   const chartComponentRef = useRef(null);
   const loadMoreThrottleRef = useRef(false);
 
@@ -94,10 +104,36 @@ function App() {
     setTpPrice('');
   }, [selectedSymbol, selectedTF]);
 
+  useEffect(() => {
+    if (!activePosition) {
+      setSlPrice('');
+      setTpPrice('');
+    }
+  }, [activePosition]);
+
   const parsePrice = (val) => {
     if (!val) return null;
     const parsed = parseFloat(val.toString().replace(',', '.'));
     return isNaN(parsed) ? null : parsed;
+  };
+
+  const currentBalance = accountBalance + (metrics?.profit || 0);
+
+  const getScaledSLTP = () => {
+    const scale = TF_SL_SCALE[selectedTF] ?? 1;
+    const slDist = (symbolInfo?.defaultSL ?? 0.00300) * scale;
+    const tpDist = (symbolInfo?.defaultTP ?? 0.00600) * scale;
+    return { slDist, tpDist };
+  };
+
+  const calcLotFromPercent = (slDist) => {
+    if (slDist <= 0) return 0.01;
+    const pipMult = symbolInfo?.pipMult || 10000;
+    const pVal = symbolInfo?.pipValue || 10;
+    const slPips = slDist * pipMult;
+    const riskDollars = currentBalance * (riskPercent / 100);
+    const calculated = riskDollars / (slPips * pVal);
+    return Math.max(0.01, parseFloat(calculated.toFixed(2)));
   };
 
   const handleBuy = () => {
@@ -105,12 +141,20 @@ function App() {
     const entry = chartData[currentIndex]?.close;
     if (!entry) return;
     const dec = symbolInfo?.decimals || 5;
-    const slDist = symbolInfo?.defaultSL ?? 0.00300;
-    const tpDist = symbolInfo?.defaultTP ?? 0.00600;
-    const sl = parsePrice(slPrice) ?? parseFloat((entry - slDist).toFixed(dec));
-    const tp = parsePrice(tpPrice) ?? parseFloat((entry + tpDist).toFixed(dec));
-    if (!parsePrice(slPrice)) setSlPrice((entry - slDist).toFixed(dec));
-    if (!parsePrice(tpPrice)) setTpPrice((entry + tpDist).toFixed(dec));
+    const { slDist, tpDist } = getScaledSLTP();
+
+    const userSL = parsePrice(slPrice);
+    const userTP = parsePrice(tpPrice);
+    const sl = (userSL != null && userSL < entry) ? userSL : parseFloat((entry - slDist).toFixed(dec));
+    const tp = (userTP != null && userTP > entry) ? userTP : parseFloat((entry + tpDist).toFixed(dec));
+    setSlPrice(sl.toFixed(dec));
+    setTpPrice(tp.toFixed(dec));
+
+    if (riskMode === 'percent') {
+      const lots = calcLotFromPercent(Math.abs(entry - sl));
+      setLotSize(lots);
+      setLotInput(lots.toString());
+    }
     executeBuyHook(sl, tp);
   };
 
@@ -119,12 +163,20 @@ function App() {
     const entry = chartData[currentIndex]?.close;
     if (!entry) return;
     const dec = symbolInfo?.decimals || 5;
-    const slDist = symbolInfo?.defaultSL ?? 0.00300;
-    const tpDist = symbolInfo?.defaultTP ?? 0.00600;
-    const sl = parsePrice(slPrice) ?? parseFloat((entry + slDist).toFixed(dec));
-    const tp = parsePrice(tpPrice) ?? parseFloat((entry - tpDist).toFixed(dec));
-    if (!parsePrice(slPrice)) setSlPrice((entry + slDist).toFixed(dec));
-    if (!parsePrice(tpPrice)) setTpPrice((entry - tpDist).toFixed(dec));
+    const { slDist, tpDist } = getScaledSLTP();
+
+    const userSL = parsePrice(slPrice);
+    const userTP = parsePrice(tpPrice);
+    const sl = (userSL != null && userSL > entry) ? userSL : parseFloat((entry + slDist).toFixed(dec));
+    const tp = (userTP != null && userTP < entry) ? userTP : parseFloat((entry - tpDist).toFixed(dec));
+    setSlPrice(sl.toFixed(dec));
+    setTpPrice(tp.toFixed(dec));
+
+    if (riskMode === 'percent') {
+      const lots = calcLotFromPercent(Math.abs(sl - entry));
+      setLotSize(lots);
+      setLotInput(lots.toString());
+    }
     executeSellHook(sl, tp);
   };
 
@@ -150,6 +202,7 @@ function App() {
   useEffect(() => {
     if (!pendingReplayTimeRef.current || isLoading || isLoadingMore) return;
     if (hasOlderData) {
+      if (chartData?.length) setReplayIndex(chartData.length - 1);
       loadAllChunks();
       return;
     }
@@ -242,6 +295,43 @@ function App() {
       setLotInput(num.toString());
     }
   }, [lotInput]);
+
+  const handleRiskPercentChange = useCallback((e) => {
+    const raw = e.target.value.replace(/[^0-9.]/g, '');
+    setRiskPercentInput(raw);
+    const num = parseFloat(raw);
+    if (!isNaN(num) && num > 0 && num <= 100) setRiskPercent(num);
+  }, []);
+
+  const handleRiskPercentBlur = useCallback(() => {
+    const num = parseFloat(riskPercentInput);
+    if (isNaN(num) || num <= 0) {
+      setRiskPercentInput('1');
+      setRiskPercent(1);
+    } else {
+      const clamped = Math.min(num, 100);
+      setRiskPercentInput(clamped.toString());
+      setRiskPercent(clamped);
+    }
+  }, [riskPercentInput]);
+
+  const handleBalanceChange = useCallback((e) => {
+    const raw = e.target.value.replace(/[^0-9.]/g, '');
+    setBalanceInput(raw);
+    const num = parseFloat(raw);
+    if (!isNaN(num) && num > 0) setAccountBalance(num);
+  }, []);
+
+  const handleBalanceBlur = useCallback(() => {
+    const num = parseFloat(balanceInput);
+    if (isNaN(num) || num <= 0) {
+      setBalanceInput('10000');
+      setAccountBalance(10000);
+    } else {
+      setBalanceInput(num.toString());
+      setAccountBalance(num);
+    }
+  }, [balanceInput]);
 
   return (
     <div className="app-container">
@@ -375,6 +465,9 @@ function App() {
                   onSLTPDrag={replayActive ? handleSLTPDrag : undefined}
                   dataKey={selectedSymbol}
                   fiboLevels={fiboLevels}
+                  pipMultiplier={symbolInfo?.pipMult || 10000}
+                  lotSize={lotSize}
+                  pipValue={symbolInfo?.pipValue || 10}
                 />
               </div>
 
@@ -476,6 +569,15 @@ function App() {
                 onClose={closePosition}
                 metrics={metrics}
                 decimals={symbolInfo?.decimals || 5}
+                riskMode={riskMode}
+                onRiskModeChange={setRiskMode}
+                riskPercentInput={riskPercentInput}
+                onRiskPercentChange={handleRiskPercentChange}
+                onRiskPercentBlur={handleRiskPercentBlur}
+                balanceInput={balanceInput}
+                onBalanceChange={handleBalanceChange}
+                onBalanceBlur={handleBalanceBlur}
+                currentBalance={currentBalance}
               />
             )}
 

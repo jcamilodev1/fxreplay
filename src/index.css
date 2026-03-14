@@ -875,3 +875,36 @@ body {
 .fibo-save-btn:hover {
   filter: brightness(1.1);
 }
+
+/* Risk Mode Toggle */
+.risk-mode-toggle {
+  display: flex;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--glass-edge);
+  border-radius: 7px;
+  padding: 2px;
+  gap: 1px;
+}
+
+.risk-mode-btn {
+  padding: 3px 8px;
+  border-radius: 5px;
+  font-size: 0.6rem;
+  font-weight: 700;
+  color: var(--text-ghost);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+
+.risk-mode-btn:hover:not(.active) {
+  color: var(--text-dim);
+}
+
+.risk-mode-btn.active {
+  background: var(--primary);
+  color: white;
+  box-shadow: 0 1px 4px var(--primary-glow);
+}

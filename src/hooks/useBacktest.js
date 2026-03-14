@@ -107,6 +107,8 @@ export const useBacktest = (fullData, dataKey, pipMultiplier = 10000, lotSize = 
     if (!pos || !fd || index >= fd.length) return;
 
     const candle = fd[index];
+    if (candle.time <= pos.time) return;
+
     let exitPrice = 0;
     let reason = '';
 

@@ -1,4 +1,4 @@
-import { ShoppingBag, XCircle } from 'lucide-react';
+import { ShoppingBag, XCircle, Wallet } from 'lucide-react';
 
 const ExecutionPanel = ({
   activePosition,
@@ -14,28 +14,83 @@ const ExecutionPanel = ({
   onClose,
   metrics,
   decimals,
+  riskMode,
+  onRiskModeChange,
+  riskPercentInput,
+  onRiskPercentChange,
+  onRiskPercentBlur,
+  balanceInput,
+  onBalanceChange,
+  onBalanceBlur,
+  currentBalance,
 }) => (
   <div className="flex gap-6">
     <div className="flex-2 metrics-card animate flex items-center gap-6" style={{ animationDelay: '0.1s' }}>
       <div className="risk-input-group">
         <div className="risk-field">
-          <label>Lotaje</label>
+          <label className="flex items-center gap-1">
+            <Wallet size={10} />
+            Balance
+          </label>
           <input
             type="text"
-            value={lotInput}
-            onChange={onLotInputChange}
-            onBlur={onLotInputBlur}
-            placeholder="0.01"
+            value={activePosition ? `$${currentBalance.toFixed(2)}` : balanceInput}
+            onChange={activePosition ? undefined : onBalanceChange}
+            onBlur={activePosition ? undefined : onBalanceBlur}
+            readOnly={!!activePosition}
+            placeholder="10000"
             className="lot-input"
+            style={{ width: 90, fontSize: '0.75rem' }}
           />
         </div>
+
+        <div className="risk-field">
+          <div className="risk-mode-toggle">
+            <button
+              onClick={() => onRiskModeChange('lots')}
+              className={`risk-mode-btn ${riskMode === 'lots' ? 'active' : ''}`}
+            >
+              Lotes
+            </button>
+            <button
+              onClick={() => onRiskModeChange('percent')}
+              className={`risk-mode-btn ${riskMode === 'percent' ? 'active' : ''}`}
+            >
+              % Riesgo
+            </button>
+          </div>
+          {riskMode === 'lots' ? (
+            <input
+              type="text"
+              value={lotInput}
+              onChange={onLotInputChange}
+              onBlur={onLotInputBlur}
+              placeholder="0.01"
+              className="lot-input"
+            />
+          ) : (
+            <div className="flex items-center gap-1">
+              <input
+                type="text"
+                value={riskPercentInput}
+                onChange={onRiskPercentChange}
+                onBlur={onRiskPercentBlur}
+                placeholder="1"
+                className="lot-input"
+                style={{ width: 45 }}
+              />
+              <span className="text-[10px] text-slate-500 font-mono">%</span>
+            </div>
+          )}
+        </div>
+
         <div className="risk-field">
           <label>Stop Loss</label>
           <input
             type="text"
             value={slPrice}
             onChange={onSlChange}
-            placeholder="Ej: 1.05200"
+            placeholder="Auto"
           />
         </div>
         <div className="risk-field">
@@ -44,7 +99,7 @@ const ExecutionPanel = ({
             type="text"
             value={tpPrice}
             onChange={onTpChange}
-            placeholder="Ej: 1.05600"
+            placeholder="Auto"
           />
         </div>
       </div>
@@ -86,8 +141,12 @@ const ExecutionPanel = ({
     </div>
 
     <div className="flex-1 metrics-card animate flex flex-col justify-center" style={{ animationDelay: '0.2s' }}>
-      <div className="stat-name uppercase text-[10px] font-bold tracking-widest mb-1">Profit Actual</div>
-      <div className="text-2xl font-bold font-mono" style={{ color: parseFloat(metrics.profit) >= 0 ? 'var(--bull)' : 'var(--bear)' }}>
+      <div className="stat-name uppercase text-[10px] font-bold tracking-widest mb-1">Balance</div>
+      <div className="text-lg font-bold font-mono" style={{ color: currentBalance >= (parseFloat(balanceInput) || 10000) ? 'var(--bull)' : 'var(--bear)' }}>
+        ${currentBalance.toFixed(2)}
+      </div>
+      <div className="stat-name uppercase text-[10px] font-bold tracking-widest mt-2 mb-1">Profit</div>
+      <div className="text-lg font-bold font-mono" style={{ color: parseFloat(metrics.profit) >= 0 ? 'var(--bull)' : 'var(--bear)' }}>
         {parseFloat(metrics.profit) >= 0 ? '+' : ''}${parseFloat(metrics.profit).toFixed(2)}
       </div>
     </div>

@@ -236,6 +236,7 @@ const TradingChart = forwardRef(({
   data, drawingMode, activePosition,
   onNeedMoreData, focusIndex, priceDecimals = 5, minMove = 0.00001,
   onSLTPDrag, dataKey, fiboLevels,
+  pipMultiplier = 10000, lotSize = 0.01, pipValue = 10,
 }, ref) => {
   const chartContainerRef = useRef();
   const chartRef = useRef();
@@ -607,11 +608,19 @@ const TradingChart = forwardRef(({
 
         const dec = priceDecimalsRef.current;
         const r = parseFloat(newPrice.toFixed(dec));
+        const pos = activePositionRef.current;
 
-        if (dragType === 'sl' && slLineRef.current) {
-          slLineRef.current.applyOptions({ price: r, title: `SL  ${r.toFixed(dec)}` });
-        } else if (dragType === 'tp' && tpLineRef.current) {
-          tpLineRef.current.applyOptions({ price: r, title: `TP  ${r.toFixed(dec)}` });
+        if (pos) {
+          const entry = pos.entry;
+          const pMult = pos.type === 'BUY' ? 1 : -1;
+          const pips = ((r - entry) * pipMultiplier * pMult).toFixed(1);
+          const usd = ((r - entry) * pipMultiplier * pMult * (pos.lotSize || lotSize) * (pos.pipValue || pipValue)).toFixed(2);
+
+          if (dragType === 'sl' && slLineRef.current) {
+            slLineRef.current.applyOptions({ price: r, title: `SL  ${r.toFixed(dec)}  (${pips} pips / $${usd})` });
+          } else if (dragType === 'tp' && tpLineRef.current) {
+            tpLineRef.current.applyOptions({ price: r, title: `TP  ${r.toFixed(dec)}  (${pips} pips / $${usd})` });
+          }
         }
         return;
       }
@@ -769,33 +778,46 @@ const TradingChart = forwardRef(({
 
     if (activePosition && activePosition.status === 'open') {
       const dec = priceDecimals;
+      const entry = activePosition.entry;
+      const posLot = activePosition.lotSize || lotSize;
+      const posPipVal = activePosition.pipValue || pipValue;
+
+      const calcPnl = (targetPrice) => {
+        const pips = activePosition.type === 'BUY'
+          ? (targetPrice - entry) * pipMultiplier
+          : (entry - targetPrice) * pipMultiplier;
+        const dollars = pips * posLot * posPipVal;
+        return { pips: pips.toFixed(1), dollars: dollars.toFixed(2) };
+      };
 
       entryLineRef.current = seriesRef.current.createPriceLine({
-        price: activePosition.entry,
+        price: entry,
         color: '#3b82f6', lineWidth: 2, lineStyle: 0,
         axisLabelVisible: true,
-        title: `ENTRY  ${activePosition.entry.toFixed(dec)}`,
+        title: `${activePosition.type}  ${entry.toFixed(dec)}`,
       });
 
       if (activePosition.sl != null) {
+        const { pips, dollars } = calcPnl(activePosition.sl);
         slLineRef.current = seriesRef.current.createPriceLine({
           price: activePosition.sl,
           color: '#f43f5e', lineWidth: 2, lineStyle: 2,
           axisLabelVisible: true,
-          title: `SL  ${activePosition.sl.toFixed(dec)}`,
+          title: `SL  ${activePosition.sl.toFixed(dec)}  (${pips} pips / $${dollars})`,
         });
       }
 
       if (activePosition.tp != null) {
+        const { pips, dollars } = calcPnl(activePosition.tp);
         tpLineRef.current = seriesRef.current.createPriceLine({
           price: activePosition.tp,
           color: '#10b981', lineWidth: 2, lineStyle: 2,
           axisLabelVisible: true,
-          title: `TP  ${activePosition.tp.toFixed(dec)}`,
+          title: `TP  ${activePosition.tp.toFixed(dec)}  (+${pips} pips / +$${dollars})`,
         });
       }
     }
-  }, [activePosition, priceDecimals]);
+  }, [activePosition, priceDecimals, pipMultiplier, lotSize, pipValue]);
 
   return (
     <div
