@@ -1,34 +1,15 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { 
-  Play, 
-  Pause, 
-  TrendingUp, 
-  Minus,
-  MousePointer2,
-  LayoutDashboard, 
-  History, 
-  BarChart3, 
-  Settings,
-  DollarSign,
-  Target,
-  ArrowDownCircle,
-  Activity,
-  ChevronLeft,
-  ChevronRight,
-  XCircle,
-  ShoppingBag,
-  Gauge,
-  ArrowBigLeftDash,
-  ArrowBigRightDash,
-  Loader2,
-  Rewind,
-  LogOut,
-  MoveUpRight,
-  Trash2,
-  Undo2,
-  GitBranch,
+import { useState, useEffect, useCallback, useRef } from 'react';
+import {
+  Minus, MousePointer2, TrendingUp, MoveUpRight,
+  GitBranch, Undo2, Trash2, Loader2, Rewind,
+  ArrowBigLeftDash, ArrowBigRightDash, AlertTriangle,
 } from 'lucide-react';
 import TradingChart from './components/TradingChart';
+import Sidebar from './components/Sidebar';
+import Header from './components/Header';
+import ExecutionPanel from './components/ExecutionPanel';
+import TradeHistory from './components/TradeHistory';
+import MetricsSummary from './components/MetricsSummary';
 import { useBacktest } from './hooks/useBacktest';
 import { useChunkedData } from './hooks/useChunkedData';
 
@@ -37,36 +18,6 @@ const SYMBOLS = [
   { id: 'usdjpy', label: 'USD/JPY', decimals: 3, pipMult: 100,   minMove: 0.001,   pipValue: 7,  defaultSL: 0.300,   defaultTP: 0.600 },
   { id: 'us100',  label: 'US100',   decimals: 2, pipMult: 1,     minMove: 0.01,    pipValue: 1,  defaultSL: 50,      defaultTP: 100 },
 ];
-
-const TIMEFRAMES = ['M1', 'M5', 'M15', 'M30', 'H1', 'H4', 'D1', 'W1'];
-
-const StatItem = ({ label, value, color, icon: Icon }) => (
-  <div className="stat-row">
-    <div className="flex items-center gap-3">
-      {Icon && <div className="p-2 rounded-lg bg-white/5 text-slate-400"><Icon size={14} /></div>}
-      <span className="stat-name">{label}</span>
-    </div>
-    <span className="stat-value" style={{ color: color || 'var(--text-main)' }}>{value}</span>
-  </div>
-);
-
-const TradeItem = ({ type, price, pnl, status, lots }) => (
-  <div className="trade-item animate-fade-in">
-    <div className="trade-info">
-      <div className="flex items-center gap-2">
-        <span className={`trade-type ${type === 'Buy' ? 'type-buy' : 'type-sell'}`}>
-          {type}
-        </span>
-        {lots && <span className="text-[10px] text-slate-500 font-mono">{lots} lots</span>}
-      </div>
-      <span className="trade-price">{price}</span>
-    </div>
-    <div className="trade-pnl" style={{ color: status === 'win' ? 'var(--bull)' : 'var(--bear)' }}>
-      <div className="text-xs uppercase font-bold opacity-50 mb-1">{status === 'win' ? 'Gain' : 'Loss'}</div>
-      <span className="font-bold">${pnl}</span>
-    </div>
-  </div>
-);
 
 function App() {
   const [drawingMode, setDrawingMode] = useState(null);
@@ -91,13 +42,11 @@ function App() {
     loadSymbol,
     loadOlderChunks,
     loadAllChunks,
-    loadChunksForRange,
   } = useChunkedData();
 
   useEffect(() => {
     loadSymbol(selectedSymbol, selectedTF);
-  }, [selectedSymbol, selectedTF]);
-
+  }, [selectedSymbol, selectedTF, loadSymbol]);
 
   const handleNeedMoreData = useCallback(() => {
     if (loadMoreThrottleRef.current || !hasOlderData) return;
@@ -107,14 +56,14 @@ function App() {
     });
   }, [hasOlderData, loadOlderChunks]);
 
-  const { 
+  const {
     replayActive,
-    isPlaying, 
+    isPlaying,
     currentIndex,
     totalCandles,
-    visibleData, 
-    metrics, 
-    trades, 
+    visibleData,
+    metrics,
+    trades,
     activePosition,
     replaySpeed,
     setReplaySpeed,
@@ -238,6 +187,11 @@ function App() {
     setSelectingStart(false);
   }, [replayStartInput, chartData, enterReplay]);
 
+  const handleExitReplay = useCallback(() => {
+    exitReplay();
+    setSelectingStart(false);
+  }, [exitReplay]);
+
   useEffect(() => {
     const handleKeyDown = (e) => {
       if (e.target.tagName === 'INPUT') return;
@@ -269,174 +223,49 @@ function App() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [stepForward, stepBackward, isPlaying, pausePlaying, startPlaying, replayActive, exitReplay, selectingStart]);
 
-  const replayProgressPct = replayActive && totalCandles > 0
-    ? ((currentIndex / (totalCandles - 1)) * 100).toFixed(1)
-    : 0;
+  const handleLotInputChange = useCallback((e) => {
+    const raw = e.target.value.replace(/[^0-9.]/g, '');
+    setLotInput(raw);
+    const num = parseFloat(raw);
+    if (!isNaN(num) && num > 0) setLotSize(num);
+  }, []);
+
+  const handleLotInputBlur = useCallback(() => {
+    const num = parseFloat(lotInput);
+    if (isNaN(num) || num <= 0) {
+      setLotInput('0.01');
+      setLotSize(0.01);
+    } else {
+      setLotInput(num.toString());
+    }
+  }, [lotInput]);
 
   return (
     <div className="app-container">
-      {/* Sidebar */}
-      <aside className="sidebar">
-        <div className="logo-area">
-          <div className="logo-icon">
-            <Activity className="text-white" size={24} />
-          </div>
-          <div className="brand-name">
-            <h1>FX Replay</h1>
-            <p>Backtesting Pro</p>
-          </div>
-        </div>
+      <Sidebar />
 
-        <nav className="nav-section">
-          <div className="nav-link active">
-            <LayoutDashboard size={18} />
-            Dashboard
-          </div>
-          <div className="nav-link">
-            <BarChart3 size={18} />
-            Analizador
-          </div>
-          <div className="nav-link">
-            <History size={18} />
-            Historial
-          </div>
-          <div className="nav-link">
-            <Settings size={18} />
-            Configuración
-          </div>
-        </nav>
-
-        <div className="mt-auto p-4 bg-white/5 rounded-2xl border border-white/5">
-          <div className="flex items-center gap-3 mb-3">
-            <div className="w-10 h-10 rounded-full bg-linear-to-tr from-blue-500 to-purple-500" />
-            <div>
-              <div className="text-sm font-bold">Trader Pro</div>
-              <div className="text-[10px] text-slate-400 uppercase tracking-tighter">Premium Plan</div>
-            </div>
-          </div>
-          <button className="w-full py-2 bg-blue-600/20 text-blue-400 rounded-lg text-xs font-bold hover:bg-blue-600/30 transition-all border border-blue-500/20">
-            Mejorar Plan
-          </button>
-        </div>
-      </aside>
-
-      {/* Main Workspace */}
       <main className="main-wrapper">
-        <header className="header">
-          <div className="flex items-center gap-4">
-            {/* Symbol selector */}
-            <div className="selector-group">
-              {SYMBOLS.map(s => (
-                <button
-                  key={s.id}
-                  onClick={() => { if (!replayActive) setSelectedSymbol(s.id); }}
-                  className={`selector-btn ${selectedSymbol === s.id ? 'active' : ''} ${replayActive ? 'opacity-50 cursor-not-allowed' : ''}`}
-                >
-                  {s.label}
-                </button>
-              ))}
-            </div>
-
-            {/* Timeframe selector */}
-            <div className="selector-group">
-              {TIMEFRAMES.map(tf => (
-                <button
-                  key={tf}
-                  onClick={() => replayActive ? handleTFChange(tf) : setSelectedTF(tf)}
-                  className={`selector-btn tf ${selectedTF === tf ? 'active' : ''}`}
-                >
-                  {tf}
-                </button>
-              ))}
-            </div>
-
-            {/* Status pills */}
-            <div className="status-pills">
-              <div className="pill">
-                <span className="pill-label">Velas:</span>
-                <span className="pill-value">{totalCandles.toLocaleString()}</span>
-              </div>
-              {replayActive && (
-                <div className="pill" style={{ borderColor: 'rgba(59,130,246,0.3)' }}>
-                  <span className="pill-label">Replay:</span>
-                  <span className="pill-value" style={{ color: 'var(--primary)' }}>
-                    {currentIndex.toLocaleString()} ({replayProgressPct}%)
-                  </span>
-                </div>
-              )}
-              <div className="pill">
-                <span className="pill-label">Saldo:</span>
-                <span className="pill-value">${(10000 + parseFloat(metrics.profit)).toLocaleString()}</span>
-              </div>
-            </div>
-          </div>
-
-          {/* Header right controls */}
-          <div className="flex items-center gap-2">
-            {replayActive ? (
-              <>
-                {/* Replay step controls */}
-                <div className="flex items-center bg-white/5 rounded-lg border border-white/5 p-1 mr-1">
-                  <button onClick={stepBackward} className="p-1.5 hover:bg-white/10 rounded-md text-slate-400 transition-all" title="Vela anterior (←)">
-                    <ChevronLeft size={18} />
-                  </button>
-                  <button onClick={stepForward} className="p-1.5 hover:bg-white/10 rounded-md text-slate-400 transition-all" title="Vela siguiente (→)">
-                    <ChevronRight size={18} />
-                  </button>
-                </div>
-
-                {/* Speed control */}
-                <div className="flex items-center bg-white/5 rounded-lg border border-white/5 p-1 mr-1 gap-1 px-2">
-                  <Gauge size={14} className="text-slate-500" />
-                  <select 
-                    value={replaySpeed} 
-                    onChange={(e) => setReplaySpeed(parseInt(e.target.value))}
-                    className="bg-transparent text-[11px] font-mono text-slate-400 outline-none cursor-pointer"
-                  >
-                    <option value="2000">0.25x</option>
-                    <option value="1000">0.5x</option>
-                    <option value="500">1x</option>
-                    <option value="200">2x</option>
-                    <option value="100">4x</option>
-                    <option value="50">8x</option>
-                  </select>
-                </div>
-
-                {/* Play/Pause */}
-                <button 
-                  onClick={() => isPlaying ? pausePlaying() : startPlaying()}
-                  className={`btn-primary ${isPlaying ? 'btn-danger' : ''}`}
-                  title="Reproducir/Pausar (Espacio)"
-                >
-                  {isPlaying ? <Pause size={18} /> : <Play size={18} />}
-                  {isPlaying ? 'Pausar' : 'Play'}
-                </button>
-
-                {/* Exit replay */}
-                <button onClick={() => { exitReplay(); setSelectingStart(false); }} className="btn-icon hover:bg-rose-500/20! hover:text-rose-400! hover:border-rose-500/30!" title="Salir del Replay (Esc)">
-                  <LogOut size={18} />
-                </button>
-              </>
-            ) : selectingStart ? (
-              <button 
-                onClick={handleCancelSelector}
-                className="btn-icon"
-                title="Cancelar (Esc)"
-              >
-                <XCircle size={18} />
-              </button>
-            ) : (
-              <button 
-                onClick={handleShowSelector}
-                className="btn-primary"
-                title="Activar Replay"
-              >
-                <Rewind size={18} />
-                Iniciar Replay
-              </button>
-            )}
-          </div>
-        </header>
+        <Header
+          selectedSymbol={selectedSymbol}
+          selectedTF={selectedTF}
+          onSymbolChange={setSelectedSymbol}
+          onTFChange={replayActive ? handleTFChange : setSelectedTF}
+          totalCandles={totalCandles}
+          currentIndex={currentIndex}
+          replayActive={replayActive}
+          isPlaying={isPlaying}
+          replaySpeed={replaySpeed}
+          metrics={metrics}
+          selectingStart={selectingStart}
+          isLoading={isLoading}
+          onSetReplaySpeed={setReplaySpeed}
+          onStepForward={stepForward}
+          onStepBackward={stepBackward}
+          onTogglePlay={() => isPlaying ? pausePlaying() : startPlaying()}
+          onExitReplay={handleExitReplay}
+          onShowSelector={handleShowSelector}
+          onCancelSelector={handleCancelSelector}
+        />
 
         <div className="dashboard-grid glass-blur">
           {/* Chart Section */}
@@ -495,7 +324,7 @@ function App() {
                   <Trash2 size={18} />
                 </button>
               </div>
-              
+
               <div id="chart-container" className="w-full h-full" style={{ position: 'relative' }}>
                 {isLoading && (
                   <div className="chart-loading-overlay">
@@ -503,10 +332,21 @@ function App() {
                     <span className="ml-3 text-slate-400 text-sm">Cargando {symbolInfo?.label} {selectedTF}...</span>
                   </div>
                 )}
-                <TradingChart 
+
+                {loadError && !isLoading && (
+                  <div className="chart-loading-overlay">
+                    <AlertTriangle size={32} className="text-amber-500" />
+                    <div className="ml-3 flex flex-col">
+                      <span className="text-amber-400 text-sm font-semibold">Error al cargar datos</span>
+                      <span className="text-slate-500 text-xs mt-1">{loadError}</span>
+                    </div>
+                  </div>
+                )}
+
+                <TradingChart
                   ref={chartComponentRef}
-                  data={visibleData} 
-                  drawingMode={drawingMode} 
+                  data={visibleData}
+                  drawingMode={drawingMode}
                   activePosition={activePosition}
                   onNeedMoreData={!replayActive ? handleNeedMoreData : undefined}
                   focusIndex={selectingStart && !replayActive ? replayStartInput : null}
@@ -517,7 +357,6 @@ function App() {
                 />
               </div>
 
-              {/* Loading more indicator */}
               {isLoadingMore && (
                 <div className="absolute top-4 right-4 z-10 flex items-center gap-2 px-3 py-1.5 bg-blue-600/20 border border-blue-500/30 rounded-lg backdrop-blur-md">
                   <Loader2 size={14} className="animate-spin text-blue-400" />
@@ -525,7 +364,6 @@ function App() {
                 </div>
               )}
 
-              {/* Bottom bar: only during selection or replay */}
               {selectingStart && !replayActive && (
                 <div className="replay-start-bar">
                   {isLoadingMore ? (
@@ -539,7 +377,7 @@ function App() {
                         <Rewind size={14} className="text-blue-400" />
                         <span className="text-[11px] font-semibold text-slate-300 whitespace-nowrap">Punto de inicio:</span>
                       </div>
-                      <input 
+                      <input
                         type="range"
                         min="0"
                         max={Math.max((chartData?.length || 1) - 1, 0)}
@@ -550,7 +388,7 @@ function App() {
                       <span className="text-[10px] font-mono text-slate-400 min-w-[90px] text-center">
                         {replayStartInput.toLocaleString()} / {(chartData?.length || 0).toLocaleString()}
                       </span>
-                      <button 
+                      <button
                         onClick={handleEnterReplay}
                         className="ml-2 px-4 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-[11px] font-bold rounded-lg transition-all whitespace-nowrap"
                       >
@@ -564,7 +402,7 @@ function App() {
               {replayActive && (
                 <div className="replay-start-bar">
                   <div className="flex items-center gap-2 pr-4 border-r border-white/10">
-                    <button 
+                    <button
                       onClick={() => jumpTo(currentIndex - 10)}
                       className="p-1 hover:text-white text-slate-400 transition-all"
                       title="-10 Velas"
@@ -574,7 +412,7 @@ function App() {
                     <span className="text-[10px] font-mono text-slate-300 min-w-[90px] text-center">
                       {currentIndex.toLocaleString()} / {totalCandles.toLocaleString()}
                     </span>
-                    <button 
+                    <button
                       onClick={() => jumpTo(currentIndex + 10)}
                       className="p-1 hover:text-white text-slate-400 transition-all"
                       title="+10 Velas"
@@ -582,8 +420,8 @@ function App() {
                       <ArrowBigRightDash size={16} />
                     </button>
                   </div>
-                  
-                  <input 
+
+                  <input
                     type="range"
                     min="0"
                     max={totalCandles - 1}
@@ -592,8 +430,8 @@ function App() {
                     className="timeline-slider"
                   />
 
-                  <button 
-                    onClick={() => { exitReplay(); setSelectingStart(false); }}
+                  <button
+                    onClick={handleExitReplay}
                     className="text-[10px] font-bold text-rose-400 hover:text-rose-300 transition-all underline decoration-rose-500/30 whitespace-nowrap"
                   >
                     SALIR REPLAY
@@ -601,109 +439,25 @@ function App() {
                 </div>
               )}
             </div>
-            
-            {/* Execution Controls & Risk Management - only in replay mode */}
+
             {replayActive && (
-              <div className="flex gap-6">
-                <div className="flex-2 metrics-card animate flex items-center gap-6" style={{ animationDelay: '0.1s' }}>
-                  <div className="risk-input-group">
-                    <div className="risk-field">
-                      <label>Lotaje</label>
-                      <input
-                        type="text"
-                        value={lotInput}
-                        onChange={(e) => {
-                          const raw = e.target.value.replace(/[^0-9.]/g, '');
-                          setLotInput(raw);
-                          const num = parseFloat(raw);
-                          if (!isNaN(num) && num > 0) setLotSize(num);
-                        }}
-                        onBlur={() => {
-                          const num = parseFloat(lotInput);
-                          if (isNaN(num) || num <= 0) {
-                            setLotInput('0.01');
-                            setLotSize(0.01);
-                          } else {
-                            setLotInput(num.toString());
-                          }
-                        }}
-                        placeholder="0.01"
-                        className="lot-input"
-                      />
-                    </div>
-                    <div className="risk-field">
-                      <label>Stop Loss</label>
-                      <input 
-                        type="text" 
-                        value={slPrice} 
-                        onChange={(e) => setSlPrice(e.target.value.replace(/[^0-9.,]/g, ''))}
-                        placeholder="Ej: 1.05200"
-                      />
-                    </div>
-                    <div className="risk-field">
-                      <label>Take Profit</label>
-                      <input 
-                        type="text" 
-                        value={tpPrice} 
-                        onChange={(e) => setTpPrice(e.target.value.replace(/[^0-9.,]/g, ''))}
-                        placeholder="Ej: 1.05600"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="flex-1 flex gap-3">
-                    {!activePosition ? (
-                      <>
-                        <button 
-                          onClick={handleBuy}
-                          className="flex-1 py-4 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-500 border border-emerald-500/20 rounded-xl font-bold transition-all flex flex-col items-center justify-center gap-1 group"
-                        >
-                          <ShoppingBag size={20} className="group-hover:scale-110 transition-transform" /> 
-                          <span className="text-xs">MARKET BUY</span>
-                        </button>
-                        <button 
-                          onClick={handleSell}
-                          className="flex-1 py-4 bg-rose-500/10 hover:bg-rose-500/20 text-rose-500 border border-rose-500/20 rounded-xl font-bold transition-all flex flex-col items-center justify-center gap-1 group"
-                        >
-                          <XCircle size={20} className="group-hover:scale-110 transition-transform" /> 
-                          <span className="text-xs">MARKET SELL</span>
-                        </button>
-                      </>
-                    ) : (
-                      <button 
-                        onClick={closePosition}
-                        className="flex-1 py-4 bg-amber-500/10 hover:bg-amber-500/20 text-amber-500 border border-amber-500/20 rounded-xl font-bold transition-all flex items-center justify-center gap-3 group"
-                      >
-                        <div className="flex flex-col items-start">
-                          <span className="text-[10px] opacity-70">POSICIÓN ACTIVA · {activePosition.lotSize} lots</span>
-                          <span className="text-lg">CERRAR {activePosition.type}</span>
-                        </div>
-                        <div className="w-px h-8 bg-amber-500/20" />
-                        <div className="text-xl font-mono">
-                          @{activePosition?.entry?.toFixed(symbolInfo?.decimals || 5) || '0.00000'}
-                        </div>
-                      </button>
-                    )}
-                  </div>
-                </div>
-
-                <div className="flex-1 metrics-card animate flex flex-col justify-center" style={{ animationDelay: '0.2s' }}>
-                  <div className="stat-name uppercase text-[10px] font-bold tracking-widest mb-1">Profit Actual</div>
-                  <div className="text-2xl font-bold font-mono" style={{ color: parseFloat(metrics.profit) >= 0 ? 'var(--bull)' : 'var(--bear)' }}>
-                    {parseFloat(metrics.profit) >= 0 ? '+' : ''}${parseFloat(metrics.profit).toFixed(2)}
-                  </div>
-                </div>
-
-                <div className="flex-1 metrics-card animate flex flex-col justify-center" style={{ animationDelay: '0.3s' }}>
-                  <div className="stat-name uppercase text-[10px] font-bold tracking-widest mb-1">Win Rate</div>
-                  <div className="text-2xl font-bold font-mono text-blue-400">
-                    {metrics.winRate.toFixed(1)}%
-                  </div>
-                </div>
-              </div>
+              <ExecutionPanel
+                activePosition={activePosition}
+                lotInput={lotInput}
+                slPrice={slPrice}
+                tpPrice={tpPrice}
+                onLotInputChange={handleLotInputChange}
+                onLotInputBlur={handleLotInputBlur}
+                onSlChange={(e) => setSlPrice(e.target.value.replace(/[^0-9.,]/g, ''))}
+                onTpChange={(e) => setTpPrice(e.target.value.replace(/[^0-9.,]/g, ''))}
+                onBuy={handleBuy}
+                onSell={handleSell}
+                onClose={closePosition}
+                metrics={metrics}
+                decimals={symbolInfo?.decimals || 5}
+              />
             )}
 
-            {/* Info bar when selecting start point */}
             {selectingStart && !replayActive && (
               <div className="flex gap-6">
                 <div className="flex-1 metrics-card animate flex items-center justify-center gap-4 py-3" style={{ animationDelay: '0.1s' }}>
@@ -718,46 +472,12 @@ function App() {
 
           {/* Right Sidebar */}
           <aside className="metrics-section">
-            <div className="metrics-card animate">
-              <div className="card-title">
-                Resumen Ejecutivo
-                <Settings size={14} className="opacity-40" />
-              </div>
-              <StatItem label="Beneficio Bruto" value={`$${(parseFloat(metrics.profit) * 1.2).toFixed(2)}`} icon={DollarSign} />
-              <StatItem label="Total Trades" value={trades.length} icon={Target} />
-              <StatItem label="Pérdida Máx" value={`-$${(parseFloat(metrics.profit) * -0.15).toFixed(2)}`} icon={ArrowDownCircle} color="var(--bear)" />
-            </div>
-
-            <div className="trade-log flex-1 animate">
-              <div className="card-title">
-                Historial de Operaciones
-                <span className="px-2 py-0.5 rounded bg-blue-500/10 text-blue-400 text-[10px]">{trades.length}</span>
-              </div>
-              <div className="log-scroll">
-                {[...trades].reverse().map((trade, idx) => (
-                  <TradeItem 
-                    key={idx}
-                    type={trade.type === 'BUY' ? 'Buy' : 'Sell'} 
-                    price={trade.entry.toFixed(symbolInfo?.decimals || 5)} 
-                    pnl={(parseFloat(trade.pnl) >= 0 ? '+' : '') + parseFloat(trade.pnl).toFixed(2)} 
-                    status={trade.status}
-                    lots={trade.lotSize}
-                  />
-                ))}
-                {trades.length === 0 && (
-                   <div className="flex-1 flex flex-col items-center justify-center text-center p-8 border border-dashed border-white/5 rounded-2xl">
-                      <div className="w-12 h-12 rounded-full bg-white/5 flex items-center justify-center mb-4 text-slate-600">
-                        <History size={24} />
-                      </div>
-                      <p className="text-xs text-slate-500 leading-relaxed">
-                        {replayActive 
-                          ? 'Opera manualmente con Buy/Sell durante el replay para ver tu historial.'
-                          : 'Inicia el replay para comenzar a operar.'}
-                      </p>
-                   </div>
-                )}
-              </div>
-            </div>
+            <MetricsSummary metrics={metrics} tradesCount={trades.length} />
+            <TradeHistory
+              trades={trades}
+              replayActive={replayActive}
+              decimals={symbolInfo?.decimals || 5}
+            />
           </aside>
         </div>
       </main>

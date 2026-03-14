@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { calculateMetrics } from '../utils/backtestEngine';
 
 const EMPTY_DATA = [];
+const INITIAL_METRICS = { profit: 0, winRate: 0, drawdown: 0, grossProfit: 0, grossLoss: 0, maxLoss: 0 };
 
 export const useBacktest = (fullData, dataKey, pipMultiplier = 10000, lotSize = 0.01, pipValue = 10) => {
   const [replayActive, setReplayActive] = useState(false);
@@ -9,7 +10,7 @@ export const useBacktest = (fullData, dataKey, pipMultiplier = 10000, lotSize = 
   const [currentIndex, setCurrentIndex] = useState(0);
   const [manualTrades, setManualTrades] = useState([]);
   const [activePosition, setActivePosition] = useState(null);
-  const [metrics, setMetrics] = useState({ profit: 0, winRate: 0, drawdown: 0 });
+  const [metrics, setMetrics] = useState(INITIAL_METRICS);
   const [replaySpeed, setReplaySpeed] = useState(500);
   const timerRef = useRef(null);
   const isExecutingRef = useRef(false);
@@ -17,10 +18,12 @@ export const useBacktest = (fullData, dataKey, pipMultiplier = 10000, lotSize = 
   const lotSizeRef = useRef(lotSize);
   const pipValueRef = useRef(pipValue);
   const fullDataRef = useRef(fullData);
+  const activePositionRef = useRef(activePosition);
 
   useEffect(() => { lotSizeRef.current = lotSize; }, [lotSize]);
   useEffect(() => { pipValueRef.current = pipValue; }, [pipValue]);
   useEffect(() => { fullDataRef.current = fullData; }, [fullData]);
+  useEffect(() => { activePositionRef.current = activePosition; }, [activePosition]);
 
   useEffect(() => {
     if (dataKey !== dataKeyRef.current) {
@@ -30,7 +33,7 @@ export const useBacktest = (fullData, dataKey, pipMultiplier = 10000, lotSize = 
       setCurrentIndex(0);
       setManualTrades([]);
       setActivePosition(null);
-      setMetrics({ profit: 0, winRate: 0, drawdown: 0 });
+      setMetrics(INITIAL_METRICS);
     }
   }, [dataKey]);
 
@@ -54,7 +57,7 @@ export const useBacktest = (fullData, dataKey, pipMultiplier = 10000, lotSize = 
     setCurrentIndex(startIndex);
     setManualTrades([]);
     setActivePosition(null);
-    setMetrics({ profit: 0, winRate: 0, drawdown: 0 });
+    setMetrics(INITIAL_METRICS);
   }, []);
 
   const exitReplay = useCallback(() => {
@@ -63,7 +66,7 @@ export const useBacktest = (fullData, dataKey, pipMultiplier = 10000, lotSize = 
     setCurrentIndex(0);
     setManualTrades([]);
     setActivePosition(null);
-    setMetrics({ profit: 0, winRate: 0, drawdown: 0 });
+    setMetrics(INITIAL_METRICS);
   }, []);
 
   const startPlaying = useCallback(() => {
@@ -75,69 +78,93 @@ export const useBacktest = (fullData, dataKey, pipMultiplier = 10000, lotSize = 
     setIsPlaying(false);
   }, []);
 
-  const checkSLTP = useCallback((index) => {
-    if (!activePosition || !fullData || index >= fullData.length) return;
+  const closeTrade = useCallback((position, exitPrice, exitTime, reason) => {
+    const pnl = calcPnl(
+      position.entry, exitPrice, position.type,
+      position.lotSize, position.pipValue
+    );
 
-    const candle = fullData[index];
-    let triggered = false;
+    const completedTrade = {
+      ...position,
+      exit: exitPrice,
+      exitTime,
+      pnl: pnl.toFixed(2),
+      status: pnl >= 0 ? 'win' : 'loss',
+      exitReason: reason
+    };
+
+    setManualTrades(prev => {
+      const newTrades = [...prev, completedTrade];
+      setMetrics(calculateMetrics(newTrades, 10000));
+      return newTrades;
+    });
+    setActivePosition(null);
+  }, [calcPnl]);
+
+  const checkSLTP = useCallback((index) => {
+    const pos = activePositionRef.current;
+    const fd = fullDataRef.current;
+    if (!pos || !fd || index >= fd.length) return;
+
+    const candle = fd[index];
     let exitPrice = 0;
     let reason = '';
 
-    if (activePosition.type === 'BUY') {
-      if (activePosition.tp && candle.high >= activePosition.tp) {
-        triggered = true;
-        exitPrice = activePosition.tp;
-        reason = 'TP';
-      } else if (activePosition.sl && candle.low <= activePosition.sl) {
-        triggered = true;
-        exitPrice = activePosition.sl;
-        reason = 'SL';
+    if (pos.type === 'BUY') {
+      const slHit = pos.sl && candle.low <= pos.sl;
+      const tpHit = pos.tp && candle.high >= pos.tp;
+
+      if (slHit && tpHit) {
+        const slDist = Math.abs(candle.open - pos.sl);
+        const tpDist = Math.abs(pos.tp - candle.open);
+        if (slDist <= tpDist) {
+          exitPrice = pos.sl; reason = 'SL';
+        } else {
+          exitPrice = pos.tp; reason = 'TP';
+        }
+      } else if (slHit) {
+        exitPrice = pos.sl; reason = 'SL';
+      } else if (tpHit) {
+        exitPrice = pos.tp; reason = 'TP';
       }
     } else {
-      if (activePosition.tp && candle.low <= activePosition.tp) {
-        triggered = true;
-        exitPrice = activePosition.tp;
-        reason = 'TP';
-      } else if (activePosition.sl && candle.high >= activePosition.sl) {
-        triggered = true;
-        exitPrice = activePosition.sl;
-        reason = 'SL';
+      const slHit = pos.sl && candle.high >= pos.sl;
+      const tpHit = pos.tp && candle.low <= pos.tp;
+
+      if (slHit && tpHit) {
+        const slDist = Math.abs(candle.open - pos.sl);
+        const tpDist = Math.abs(candle.open - pos.tp);
+        if (slDist <= tpDist) {
+          exitPrice = pos.sl; reason = 'SL';
+        } else {
+          exitPrice = pos.tp; reason = 'TP';
+        }
+      } else if (slHit) {
+        exitPrice = pos.sl; reason = 'SL';
+      } else if (tpHit) {
+        exitPrice = pos.tp; reason = 'TP';
       }
     }
 
-    if (triggered) {
-      const pnl = calcPnl(
-        activePosition.entry, exitPrice, activePosition.type,
-        activePosition.lotSize, activePosition.pipValue
-      );
-
-      const completedTrade = {
-        ...activePosition,
-        exit: exitPrice,
-        exitTime: candle.time,
-        pnl: pnl.toFixed(2),
-        status: pnl >= 0 ? 'win' : 'loss',
-        exitReason: reason
-      };
-
-      setManualTrades(prev => {
-        const newTrades = [...prev, completedTrade];
-        setMetrics(calculateMetrics(newTrades, 10000));
-        return newTrades;
-      });
-      setActivePosition(null);
+    if (reason) {
+      closeTrade(pos, exitPrice, candle.time, reason);
     }
-  }, [activePosition, fullData, calcPnl]);
+  }, [closeTrade]);
 
   const stepForward = useCallback(() => {
     if (!replayActive || !fullData || !fullData.length) return;
     setCurrentIndex(prev => {
       const next = prev + 1;
       if (next >= fullData.length) return prev;
-      checkSLTP(next);
       return next;
     });
-  }, [replayActive, fullData, checkSLTP]);
+  }, [replayActive, fullData]);
+
+  useEffect(() => {
+    if (replayActive && activePosition) {
+      checkSLTP(safeIndex);
+    }
+  }, [safeIndex, replayActive, activePosition, checkSLTP]);
 
   const stepBackward = useCallback(() => {
     if (!replayActive) return;
@@ -228,30 +255,9 @@ export const useBacktest = (fullData, dataKey, pipMultiplier = 10000, lotSize = 
     if (!activePosition || !fullData?.length) return;
     const currentCandle = fullData[safeIndex];
     if (!currentCandle) return;
+    closeTrade(activePosition, currentCandle.close, currentCandle.time, 'Manual');
+  }, [activePosition, safeIndex, fullData, closeTrade]);
 
-    const pnl = calcPnl(
-      activePosition.entry, currentCandle.close, activePosition.type,
-      activePosition.lotSize, activePosition.pipValue
-    );
-
-    const completedTrade = {
-      ...activePosition,
-      exit: currentCandle.close,
-      exitTime: currentCandle.time,
-      pnl: pnl.toFixed(2),
-      status: pnl >= 0 ? 'win' : 'loss',
-      exitReason: 'Manual'
-    };
-
-    setManualTrades(prev => {
-      const newTrades = [...prev, completedTrade];
-      setMetrics(calculateMetrics(newTrades, 10000));
-      return newTrades;
-    });
-    setActivePosition(null);
-  }, [activePosition, safeIndex, fullData, calcPnl]);
-
-  // Timer effect: NO safeIndex in deps — avoids interval recreation on every tick
   useEffect(() => {
     if (!isPlaying || !replayActive) {
       clearInterval(timerRef.current);
@@ -266,13 +272,12 @@ export const useBacktest = (fullData, dataKey, pipMultiplier = 10000, lotSize = 
           setIsPlaying(false);
           return prev;
         }
-        checkSLTP(next);
         return next;
       });
     }, replaySpeed);
 
     return () => clearInterval(timerRef.current);
-  }, [isPlaying, replayActive, replaySpeed, checkSLTP]);
+  }, [isPlaying, replayActive, replaySpeed]);
 
   return {
     replayActive,

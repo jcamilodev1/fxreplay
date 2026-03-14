@@ -70,13 +70,18 @@ export const runBacktest = (data, options = {}) => {
 };
 
 export const calculateMetrics = (trades, initialBalance) => {
-  if (trades.length === 0) return { profit: 0, winRate: 0, drawdown: 0 };
+  if (trades.length === 0) {
+    return { profit: 0, winRate: 0, drawdown: 0, grossProfit: 0, grossLoss: 0, maxLoss: 0 };
+  }
 
   const pnls = trades.map(t => parseFloat(t.pnl));
   const totalProfit = pnls.reduce((a, b) => a + b, 0);
   const wins = pnls.filter(p => p > 0).length;
-  
-  // Simple Max Drawdown calculation
+
+  const grossProfit = pnls.filter(p => p > 0).reduce((a, b) => a + b, 0);
+  const grossLoss = Math.abs(pnls.filter(p => p < 0).reduce((a, b) => a + b, 0));
+  const maxLoss = pnls.length > 0 ? Math.abs(Math.min(...pnls, 0)) : 0;
+
   let maxBalance = initialBalance;
   let maxDrawdown = 0;
   let currentBalance = initialBalance;
@@ -91,6 +96,9 @@ export const calculateMetrics = (trades, initialBalance) => {
   return {
     profit: totalProfit,
     winRate: (wins / trades.length) * 100,
-    drawdown: maxDrawdown
+    drawdown: maxDrawdown,
+    grossProfit,
+    grossLoss,
+    maxLoss,
   };
 };

@@ -365,17 +365,16 @@ const TradingChart = forwardRef(({
     container.addEventListener('pointermove', handlePointerMove);
     container.addEventListener('pointerup', handlePointerUp);
 
-    // --- Resize ---
-    const handleResize = () => {
-      if (chartContainerRef.current) {
-        chart.applyOptions({
-          width: chartContainerRef.current.clientWidth,
-          height: chartContainerRef.current.clientHeight,
-        });
+    // --- Resize (ResizeObserver detects sidebar collapse, window resize, etc.) ---
+    const resizeObserver = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const { width, height } = entry.contentRect;
+        if (width > 0 && height > 0) {
+          chart.applyOptions({ width, height });
+        }
       }
-    };
-    window.addEventListener('resize', handleResize);
-    handleResize();
+    });
+    resizeObserver.observe(container);
 
     if (dataRef.current && dataRef.current.length > 0) {
       candlestickSeries.setData(dataRef.current);
@@ -386,7 +385,7 @@ const TradingChart = forwardRef(({
       container.removeEventListener('pointerdown', handlePointerDown);
       container.removeEventListener('pointermove', handlePointerMove);
       container.removeEventListener('pointerup', handlePointerUp);
-      window.removeEventListener('resize', handleResize);
+      resizeObserver.disconnect();
       chart.remove();
     };
   }, []);
