@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import {
-  Minus, MousePointer2, TrendingUp, MoveUpRight,
+  Minus, MousePointer2, TrendingUp, RectangleHorizontal,
   GitBranch, Undo2, Trash2, Loader2, Rewind,
   ArrowBigLeftDash, ArrowBigRightDash, AlertTriangle,
 } from 'lucide-react';
@@ -295,11 +295,11 @@ function App() {
                   <TrendingUp size={18} />
                 </button>
                 <button
-                  onClick={() => setDrawingMode(drawingMode === 'ray' ? null : 'ray')}
-                  className={`control-btn ${drawingMode === 'ray' ? 'active' : ''}`}
-                  title="Rayo"
+                  onClick={() => setDrawingMode(drawingMode === 'rectangle' ? null : 'rectangle')}
+                  className={`control-btn ${drawingMode === 'rectangle' ? 'active' : ''}`}
+                  title="Zona / Rectángulo"
                 >
-                  <MoveUpRight size={18} />
+                  <RectangleHorizontal size={18} />
                 </button>
                 <button
                   onClick={() => setDrawingMode(drawingMode === 'fibonacci' ? null : 'fibonacci')}

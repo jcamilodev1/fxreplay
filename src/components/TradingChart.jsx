@@ -4,6 +4,67 @@ import { createChart, CandlestickSeries, LineSeries } from 'lightweight-charts';
 const FIBO_LEVELS = [0, 0.236, 0.382, 0.5, 0.618, 0.786, 1];
 const FIBO_COLORS = ['#ef4444', '#f97316', '#eab308', '#84cc16', '#06b6d4', '#8b5cf6', '#ec4899'];
 
+class RectangleRenderer {
+  constructor(source) { this._source = source; }
+  draw(target) {
+    target.useBitmapCoordinateSpace((scope) => {
+      const { context: ctx, horizontalPixelRatio: hr, verticalPixelRatio: vr } = scope;
+      const s = this._source;
+      if (!s._chart || !s._series) return;
+
+      const x1 = s._chart.timeScale().timeToCoordinate(s._p1.time);
+      const x2 = s._chart.timeScale().timeToCoordinate(s._p2.time);
+      const y1 = s._series.priceToCoordinate(s._p1.price);
+      const y2 = s._series.priceToCoordinate(s._p2.price);
+      if (x1 == null || x2 == null || y1 == null || y2 == null) return;
+
+      const left = Math.round(Math.min(x1, x2) * hr);
+      const top = Math.round(Math.min(y1, y2) * vr);
+      const width = Math.round(Math.abs(x2 - x1) * hr);
+      const height = Math.round(Math.abs(y2 - y1) * vr);
+
+      ctx.fillStyle = s._fillColor;
+      ctx.fillRect(left, top, width, height);
+
+      ctx.strokeStyle = s._borderColor;
+      ctx.lineWidth = Math.max(1, Math.round(hr));
+      ctx.strokeRect(left, top, width, height);
+    });
+  }
+}
+
+class RectanglePaneView {
+  constructor(source) { this._source = source; this._renderer = new RectangleRenderer(source); }
+  update() {}
+  renderer() { return this._renderer; }
+}
+
+class RectanglePrimitive {
+  constructor(p1, p2, fillColor, borderColor) {
+    this._p1 = p1;
+    this._p2 = p2;
+    this._fillColor = fillColor;
+    this._borderColor = borderColor;
+    this._chart = null;
+    this._series = null;
+    this._requestUpdate = null;
+    this._paneViews = [new RectanglePaneView(this)];
+  }
+  attached({ chart, series, requestUpdate }) {
+    this._chart = chart;
+    this._series = series;
+    this._requestUpdate = requestUpdate;
+  }
+  detached() { this._chart = null; this._series = null; this._requestUpdate = null; }
+  updateAllViews() {}
+  paneViews() { return this._paneViews; }
+  updateCorners(p1, p2) {
+    this._p1 = p1;
+    this._p2 = p2;
+    if (this._requestUpdate) this._requestUpdate();
+  }
+}
+
 const TradingChart = forwardRef(({
   data, drawingMode, activePosition,
   onNeedMoreData, focusIndex, priceDecimals = 5, minMove = 0.00001,
@@ -30,10 +91,12 @@ const TradingChart = forwardRef(({
 
   const drawingsRef = useRef([]);
   const firstPointRef = useRef(null);
+  const cleanupPreviewRef = useRef(null);
 
   useEffect(() => {
     drawingModeRef.current = drawingMode;
     firstPointRef.current = null;
+    if (cleanupPreviewRef.current) cleanupPreviewRef.current();
     if (chartContainerRef.current) {
       chartContainerRef.current.style.cursor = drawingMode ? 'crosshair' : '';
     }
@@ -54,17 +117,18 @@ const TradingChart = forwardRef(({
     }
   }, [priceDecimals, minMove]);
 
+  const removeDrawingItem = (item, chart, series) => {
+    try {
+      if (item.kind === 'series' && chart) chart.removeSeries(item.ref);
+      if (item.kind === 'priceLine' && series) series.removePriceLine(item.ref);
+      if (item.kind === 'primitive' && series) series.detachPrimitive(item.ref);
+    } catch {}
+  };
+
   const clearAllDrawings = () => {
     const chart = chartRef.current;
     const series = seriesRef.current;
-    drawingsRef.current.forEach(drawing => {
-      drawing.items.forEach(item => {
-        try {
-          if (item.kind === 'series' && chart) chart.removeSeries(item.ref);
-          if (item.kind === 'priceLine' && series) series.removePriceLine(item.ref);
-        } catch {}
-      });
-    });
+    drawingsRef.current.forEach(d => d.items.forEach(i => removeDrawingItem(i, chart, series)));
     drawingsRef.current = [];
   };
 
@@ -73,12 +137,7 @@ const TradingChart = forwardRef(({
     const last = drawingsRef.current.pop();
     const chart = chartRef.current;
     const series = seriesRef.current;
-    last.items.forEach(item => {
-      try {
-        if (item.kind === 'series' && chart) chart.removeSeries(item.ref);
-        if (item.kind === 'priceLine' && series) series.removePriceLine(item.ref);
-      } catch {}
-    });
+    last.items.forEach(i => removeDrawingItem(i, chart, series));
   };
 
   useImperativeHandle(ref, () => ({
@@ -144,6 +203,114 @@ const TradingChart = forwardRef(({
     });
     seriesRef.current = candlestickSeries;
 
+    // --- Drawing helpers ---
+    let previewLines = [];
+    let previewPrimitive = null;
+
+    const cleanupPreview = () => {
+      previewLines.forEach(pl => {
+        try { candlestickSeries.removePriceLine(pl); } catch {}
+      });
+      previewLines = [];
+      if (previewPrimitive) {
+        try { candlestickSeries.detachPrimitive(previewPrimitive); } catch {}
+        previewPrimitive = null;
+      }
+    };
+    cleanupPreviewRef.current = cleanupPreview;
+
+    const sortAndDedup = (points) => {
+      points.sort((a, b) => a.time - b.time);
+      for (let i = 1; i < points.length; i++) {
+        if (points[i].time <= points[i - 1].time) {
+          points[i] = { ...points[i], time: points[i - 1].time + 1 };
+        }
+      }
+      return points;
+    };
+
+    const buildFiboLevels = (startPrice, endPrice, dec) => {
+      const diff = endPrice - startPrice;
+      if (Math.abs(diff) === 0) return null;
+      return FIBO_LEVELS.map((level, i) => {
+        const price = parseFloat((endPrice - diff * level).toFixed(dec));
+        return { level, price, color: FIBO_COLORS[i] };
+      });
+    };
+
+    const DRAWING_SERIES_OPTS = {
+      lastValueVisible: false,
+      priceLineVisible: false,
+      crosshairMarkerVisible: false,
+      autoscaleInfoProvider: () => null,
+    };
+
+    // --- Live preview on crosshair move (price lines only, no setData recursion) ---
+    chart.subscribeCrosshairMove((param) => {
+      const mode = drawingModeRef.current;
+      const fp = firstPointRef.current;
+      if (!mode || !fp || !param.point || !param.time) return;
+
+      const price = candlestickSeries.coordinateToPrice(param.point.y);
+      if (price == null || isNaN(price)) return;
+      const dec = priceDecimalsRef.current;
+      const cur = parseFloat(price.toFixed(dec));
+
+      switch (mode) {
+        case 'trendline': {
+          if (previewLines.length === 0) {
+            previewLines.push(candlestickSeries.createPriceLine({
+              price: fp.price, color: 'rgba(59, 130, 246, 0.4)',
+              lineWidth: 1, lineStyle: 3, axisLabelVisible: true, title: 'P1',
+            }));
+            previewLines.push(candlestickSeries.createPriceLine({
+              price: cur, color: 'rgba(59, 130, 246, 0.4)',
+              lineWidth: 1, lineStyle: 3, axisLabelVisible: true, title: 'P2',
+            }));
+          } else {
+            previewLines[1]?.applyOptions({ price: cur });
+          }
+          break;
+        }
+        case 'rectangle': {
+          if (fp.price === cur) break;
+          const corner2 = { time: param.time, price: cur };
+          if (!previewPrimitive) {
+            previewPrimitive = new RectanglePrimitive(
+              fp, corner2,
+              'rgba(245, 158, 11, 0.08)', 'rgba(245, 158, 11, 0.35)'
+            );
+            candlestickSeries.attachPrimitive(previewPrimitive);
+          } else {
+            previewPrimitive.updateCorners(fp, corner2);
+          }
+          break;
+        }
+        case 'fibonacci': {
+          const levels = buildFiboLevels(fp.price, cur, dec);
+          if (!levels) break;
+          if (previewLines.length === 0) {
+            levels.forEach(({ level, price: lp, color }) => {
+              previewLines.push(candlestickSeries.createPriceLine({
+                price: lp, color: color + '88',
+                lineWidth: 1, lineStyle: 3,
+                axisLabelVisible: true,
+                title: `${(level * 100).toFixed(1)}%`,
+              }));
+            });
+          } else {
+            levels.forEach(({ level, price: lp }, i) => {
+              previewLines[i]?.applyOptions({
+                price: lp,
+                title: `${(level * 100).toFixed(1)}%`,
+              });
+            });
+          }
+          break;
+        }
+      }
+    });
+
     // --- Drawing click handler ---
     chart.subscribeClick((param) => {
       const mode = drawingModeRef.current;
@@ -151,17 +318,14 @@ const TradingChart = forwardRef(({
 
       const price = candlestickSeries.coordinateToPrice(param.point.y);
       if (price == null || isNaN(price)) return;
-
       const dec = priceDecimalsRef.current;
       const rounded = parseFloat(price.toFixed(dec));
 
       switch (mode) {
         case 'horizontal': {
           const pl = candlestickSeries.createPriceLine({
-            price: rounded,
-            color: '#8b5cf6',
-            lineWidth: 2,
-            lineStyle: 0,
+            price: rounded, color: '#8b5cf6',
+            lineWidth: 2, lineStyle: 0,
             axisLabelVisible: true,
             title: `S/R ${rounded.toFixed(dec)}`,
           });
@@ -173,48 +337,45 @@ const TradingChart = forwardRef(({
           if (!firstPointRef.current) {
             firstPointRef.current = { time: param.time, price: rounded };
           } else {
-            const ls = chart.addSeries(LineSeries, {
-              color: '#3b82f6', lineWidth: 2, lineType: 0,
-              lastValueVisible: false, priceLineVisible: false,
-            });
-            ls.setData([
-              { time: firstPointRef.current.time, value: firstPointRef.current.price },
+            const fp = firstPointRef.current;
+            firstPointRef.current = null;
+            cleanupPreview();
+
+            if (fp.time === param.time && fp.price === rounded) break;
+            const pts = sortAndDedup([
+              { time: fp.time, value: fp.price },
               { time: param.time, value: rounded },
             ]);
+
+            const ls = chart.addSeries(LineSeries, {
+              color: '#3b82f6', lineWidth: 2, lineType: 0,
+              ...DRAWING_SERIES_OPTS,
+            });
+            ls.setData(pts);
             drawingsRef.current.push({ type: 'trendline', items: [{ kind: 'series', ref: ls }] });
-            firstPointRef.current = null;
           }
           break;
         }
 
-        case 'ray': {
+        case 'rectangle': {
           if (!firstPointRef.current) {
             firstPointRef.current = { time: param.time, price: rounded };
           } else {
-            const t1 = firstPointRef.current.time;
-            const p1 = firstPointRef.current.price;
-            const t2 = param.time;
-            const p2 = rounded;
-
-            const dt = t2 - t1;
-            if (dt === 0) { firstPointRef.current = null; break; }
-
-            const slope = (p2 - p1) / dt;
-            const extend = Math.abs(dt) * 200;
-            const farTime = t2 + extend;
-            const farPrice = parseFloat((p2 + slope * extend).toFixed(dec));
-
-            const ls = chart.addSeries(LineSeries, {
-              color: '#f59e0b', lineWidth: 2, lineType: 0,
-              lastValueVisible: false, priceLineVisible: false,
-            });
-            ls.setData([
-              { time: t1, value: p1 },
-              { time: t2, value: p2 },
-              { time: farTime, value: farPrice },
-            ]);
-            drawingsRef.current.push({ type: 'ray', items: [{ kind: 'series', ref: ls }] });
+            const fp = firstPointRef.current;
             firstPointRef.current = null;
+            cleanupPreview();
+
+            if (fp.time === param.time && fp.price === rounded) break;
+
+            const rect = new RectanglePrimitive(
+              fp, { time: param.time, price: rounded },
+              'rgba(245, 158, 11, 0.15)', 'rgba(245, 158, 11, 0.7)'
+            );
+            candlestickSeries.attachPrimitive(rect);
+            drawingsRef.current.push({
+              type: 'rectangle',
+              items: [{ kind: 'primitive', ref: rect }],
+            });
           }
           break;
         }
@@ -223,27 +384,24 @@ const TradingChart = forwardRef(({
           if (!firstPointRef.current) {
             firstPointRef.current = { time: param.time, price: rounded };
           } else {
-            const high = Math.max(firstPointRef.current.price, rounded);
-            const low = Math.min(firstPointRef.current.price, rounded);
-            const diff = high - low;
-            if (diff === 0) { firstPointRef.current = null; break; }
+            const fp = firstPointRef.current;
+            firstPointRef.current = null;
+            cleanupPreview();
+
+            const levels = buildFiboLevels(fp.price, rounded, dec);
+            if (!levels) break;
 
             const items = [];
-            FIBO_LEVELS.forEach((level, i) => {
-              const levelPrice = parseFloat((high - diff * level).toFixed(dec));
+            levels.forEach(({ level, price: lp, color }) => {
               const pl = candlestickSeries.createPriceLine({
-                price: levelPrice,
-                color: FIBO_COLORS[i],
-                lineWidth: 1,
-                lineStyle: 2,
+                price: lp, color,
+                lineWidth: 1, lineStyle: 2,
                 axisLabelVisible: true,
-                title: `${(level * 100).toFixed(1)}%`,
+                title: `${(level * 100).toFixed(1)}%  ${lp.toFixed(dec)}`,
               });
               items.push({ kind: 'priceLine', ref: pl });
             });
-
             drawingsRef.current.push({ type: 'fibonacci', items });
-            firstPointRef.current = null;
           }
           break;
         }
@@ -382,6 +540,7 @@ const TradingChart = forwardRef(({
     }
 
     return () => {
+      cleanupPreviewRef.current = null;
       container.removeEventListener('pointerdown', handlePointerDown);
       container.removeEventListener('pointermove', handlePointerMove);
       container.removeEventListener('pointerup', handlePointerUp);
