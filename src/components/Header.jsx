@@ -7,6 +7,7 @@ const SYMBOLS = [
   { id: 'eurusd', label: 'EUR/USD' },
   { id: 'usdjpy', label: 'USD/JPY' },
   { id: 'us100',  label: 'US100' },
+  { id: 'xauusd', label: 'XAU/USD' },
 ];
 
 const TIMEFRAMES = ['M1', 'M5', 'M15', 'M30', 'H1', 'H4', 'D1', 'W1'];
@@ -31,6 +32,7 @@ const Header = ({
   onExitReplay,
   onShowSelector,
   onCancelSelector,
+  currentBalance,
 }) => {
   const replayProgressPct = replayActive && totalCandles > 0
     ? ((currentIndex / (totalCandles - 1)) * 100).toFixed(1)
@@ -40,15 +42,18 @@ const Header = ({
     <header className="header">
       <div className="flex items-center gap-4">
         <div className="selector-group">
-          {SYMBOLS.map(s => (
-            <button
-              key={s.id}
-              onClick={() => { if (!replayActive) onSymbolChange(s.id); }}
-              className={`selector-btn ${selectedSymbol === s.id ? 'active' : ''} ${replayActive ? 'opacity-50 cursor-not-allowed' : ''}`}
-            >
-              {s.label}
-            </button>
-          ))}
+          <select
+            value={selectedSymbol}
+            onChange={(e) => { if (!replayActive) onSymbolChange(e.target.value); }}
+            disabled={replayActive}
+            className={`bg-[#1e293b] text-white border border-white/10 rounded-lg px-3 py-1.5 text-sm font-semibold outline-none focus:border-blue-500 transition-colors ${replayActive ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer hover:bg-[#2a374a]'}`}
+          >
+            {SYMBOLS.map(s => (
+              <option key={s.id} value={s.id}>
+                {s.label}
+              </option>
+            ))}
+          </select>
         </div>
 
         <div className="selector-group">
@@ -78,7 +83,7 @@ const Header = ({
           )}
           <div className="pill">
             <span className="pill-label">Saldo:</span>
-            <span className="pill-value">${(10000 + parseFloat(metrics.profit)).toLocaleString()}</span>
+            <span className="pill-value">${(currentBalance || 10000).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
           </div>
         </div>
       </div>

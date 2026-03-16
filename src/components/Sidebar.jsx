@@ -1,8 +1,16 @@
 import { useState } from 'react';
-import { Activity, LayoutDashboard, BarChart3, History, Settings, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
+import { Activity, LayoutDashboard, BarChart3, History, Settings, PanelLeftClose, PanelLeftOpen, LogOut } from 'lucide-react';
+import { supabase } from '../lib/supabase';
+import { useNavigate } from 'react-router-dom';
 
-const Sidebar = () => {
+const Sidebar = ({ onOpenSettings }) => {
   const [collapsed, setCollapsed] = useState(true);
+  const navigate = useNavigate();
+
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+    navigate('/login');
+  };
 
   return (
     <aside className={`sidebar ${collapsed ? 'sidebar-collapsed' : ''}`}>
@@ -31,9 +39,17 @@ const Sidebar = () => {
           <History size={18} />
           {!collapsed && 'Historial'}
         </div>
-        <div className="nav-link" title="Configuración">
+        <div 
+          className="nav-link cursor-pointer" 
+          title="Configuración"
+          onClick={onOpenSettings}
+        >
           <Settings size={18} />
           {!collapsed && 'Configuración'}
+        </div>
+        <div className="nav-link text-rose-400 hover:text-rose-300 hover:bg-rose-500/10 mt-auto cursor-pointer" title="Cerrar Sesión" onClick={handleLogout}>
+          <LogOut size={18} />
+          {!collapsed && 'Cerrar Sesión'}
         </div>
       </nav>
 
