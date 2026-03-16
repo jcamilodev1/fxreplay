@@ -52,9 +52,12 @@ function App() {
     isLoadingMore,
     loadError,
     hasOlderData,
+    loadedRange,
     loadSymbol,
     loadOlderChunks,
+    loadNewerChunks,
     loadAllChunks,
+    loadChunksForRange,
   } = useChunkedData();
 
   useEffect(() => {
@@ -95,6 +98,38 @@ function App() {
   } = useBacktest(chartData, selectedSymbol, symbolInfo?.pipMult || 10000, lotSize, symbolInfo?.pipValue || 10);
 
   const pendingReplayTimeRef = useRef(null);
+  const pendingReplayIndexRef = useRef(null);
+
+  const absoluteIndex = loadedRange?.startCandle != null ? loadedRange.startCandle + currentIndex : currentIndex;
+
+  useEffect(() => {
+    if (pendingReplayIndexRef.current !== null && !isLoading && !isLoadingMore && chartData?.length > 0) {
+      const targetAbsIndex = pendingReplayIndexRef.current;
+      pendingReplayIndexRef.current = null;
+      const targetLocal = loadedRange?.startCandle != null ? targetAbsIndex - loadedRange.startCandle : targetAbsIndex;
+      jumpTo(targetLocal);
+    }
+  }, [chartData, isLoading, isLoadingMore, loadedRange, jumpTo]);
+
+  const handleJumpAbs = useCallback(async (targetAbsIndex) => {
+    if (!meta || targetAbsIndex < 0 || targetAbsIndex >= meta.totalCandles) return;
+    
+    const targetLocal = loadedRange?.startCandle != null ? targetAbsIndex - loadedRange.startCandle : targetAbsIndex;
+    
+    if (targetLocal < 0 || targetLocal >= (chartData?.length || 0)) {
+       pausePlaying();
+       pendingReplayIndexRef.current = targetAbsIndex;
+       const chunkSize = meta.chunkSize;
+       const startChunk = Math.floor(targetAbsIndex / chunkSize);
+       const firstChunk = Math.max(0, startChunk - 1);
+       const endChunk = startChunk + 1;
+       const startCandle = firstChunk * chunkSize;
+       const endCandle = Math.min(meta.totalCandles - 1, (endChunk + 1) * chunkSize - 1);
+       await loadChunksForRange(startCandle, endCandle);
+    } else {
+       jumpTo(targetLocal);
+    }
+  }, [meta, loadedRange, chartData, pausePlaying, loadChunksForRange, jumpTo]);
 
   const [slPrice, setSlPrice] = useState('');
   const [tpPrice, setTpPrice] = useState('');
@@ -223,6 +258,16 @@ function App() {
     setReplayIndex(closestIdx);
   }, [chartData, isLoading, isLoadingMore, hasOlderData, loadAllChunks, setReplayIndex]);
 
+  useEffect(() => {
+    if (replayActive && chartData && chartData.length > 0) {
+      if (currentIndex >= chartData.length - 1000) {
+        if (!isLoadingMore) {
+          loadNewerChunks(2);
+        }
+      }
+    }
+  }, [replayActive, currentIndex, chartData, isLoadingMore, loadNewerChunks]);
+
   const handleShowSelector = useCallback(async () => {
     setSelectingStart(true);
     await loadAllChunks();
@@ -344,7 +389,7 @@ function App() {
           onSymbolChange={setSelectedSymbol}
           onTFChange={replayActive ? handleTFChange : setSelectedTF}
           totalCandles={totalCandles}
-          currentIndex={currentIndex}
+          currentIndex={absoluteIndex}
           replayActive={replayActive}
           isPlaying={isPlaying}
           replaySpeed={replaySpeed}
@@ -517,17 +562,17 @@ function App() {
                 <div className="replay-start-bar">
                   <div className="flex items-center gap-2 pr-4 border-r border-white/10">
                     <button
-                      onClick={() => jumpTo(currentIndex - 10)}
+                      onClick={() => handleJumpAbs(absoluteIndex - 10)}
                       className="p-1 hover:text-white text-slate-400 transition-all"
                       title="-10 Velas"
                     >
                       <ArrowBigLeftDash size={16} />
                     </button>
                     <span className="text-[10px] font-mono text-slate-300 min-w-[90px] text-center">
-                      {currentIndex.toLocaleString()} / {totalCandles.toLocaleString()}
+                      {absoluteIndex.toLocaleString()} / {totalCandles.toLocaleString()}
                     </span>
                     <button
-                      onClick={() => jumpTo(currentIndex + 10)}
+                      onClick={() => handleJumpAbs(absoluteIndex + 10)}
                       className="p-1 hover:text-white text-slate-400 transition-all"
                       title="+10 Velas"
                     >
@@ -539,8 +584,8 @@ function App() {
                     type="range"
                     min="0"
                     max={totalCandles - 1}
-                    value={currentIndex}
-                    onChange={(e) => jumpTo(parseInt(e.target.value))}
+                    value={absoluteIndex}
+                    onChange={(e) => handleJumpAbs(parseInt(e.target.value))}
                     className="timeline-slider"
                   />
 

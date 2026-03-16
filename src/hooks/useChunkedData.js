@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useEffect } from 'react';
+import { useState, useCallback, useRef } from 'react';
 
 const INITIAL_CHUNKS_TO_LOAD = 2;
 
@@ -25,10 +25,24 @@ export const useChunkedData = () => {
   }, []);
 
   const fetchChunk = useCallback(async (baseKey, chunkIdx) => {
-    const url = `/data/${baseKey}_${chunkIdx}.json`;
-    const res = await fetch(url);
-    if (!res.ok) throw new Error(`Chunk not found: ${url}`);
-    return res.json();
+    const baseUrl = (import.meta.env.VITE_DATA_URL || '/data').replace(/\/$/, '');
+    const url = `${baseUrl}/${baseKey}_${chunkIdx}.json`;
+    
+    try {
+      const cache = await caches.open('fxreplay-data-cache');
+      const cachedRes = await cache.match(url);
+      if (cachedRes) return await cachedRes.json();
+      
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`Chunk not found: ${url}`);
+      
+      cache.put(url, res.clone());
+      return await res.json();
+    } catch {
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`Chunk not found: ${url}`);
+      return await res.json();
+    }
   }, []);
 
   const loadSymbol = useCallback(async (symbol, tf) => {
@@ -43,7 +57,8 @@ export const useChunkedData = () => {
     currentKeyRef.current = baseKey;
 
     try {
-      const metaRes = await fetch(`/data/${baseKey}_meta.json`);
+      const baseUrl = (import.meta.env.VITE_DATA_URL || '/data').replace(/\/$/, '');
+      const metaRes = await fetch(`${baseUrl}/${baseKey}_meta.json`);
       if (!metaRes.ok) throw new Error(`No data for ${symbol} ${tf}`);
       const metaData = await metaRes.json();
       metaRef.current = metaData;
@@ -116,6 +131,51 @@ export const useChunkedData = () => {
       return true;
     } catch (err) {
       console.error('Error loading older chunks:', err);
+      return false;
+    } finally {
+      setIsLoadingMore(false);
+    }
+  }, [isLoadingMore, fetchChunk, buildMergedData]);
+
+  const loadNewerChunks = useCallback(async (count = 1) => {
+    if (!metaRef.current || isLoadingMore) return false;
+
+    const loaded = loadedChunksRef.current;
+    const newestLoaded = Math.max(...loaded);
+
+    if (newestLoaded >= metaRef.current.totalChunks - 1) return false;
+
+    setIsLoadingMore(true);
+    const baseKey = currentKeyRef.current;
+
+    try {
+      const lastToLoad = Math.min(metaRef.current.totalChunks - 1, newestLoaded + count);
+      const promises = [];
+
+      for (let i = newestLoaded + 1; i <= lastToLoad; i++) {
+        if (!loaded.has(i)) {
+          promises.push(
+            fetchChunk(baseKey, i).then(chunkData => {
+              allChunksRef.current[i] = chunkData;
+              loadedChunksRef.current.add(i);
+            })
+          );
+        }
+      }
+
+      if (promises.length === 0) {
+        setIsLoadingMore(false);
+        return false;
+      }
+
+      await Promise.all(promises);
+
+      if (currentKeyRef.current === baseKey) {
+        setData(buildMergedData());
+      }
+      return true;
+    } catch (err) {
+      console.error('Error loading newer chunks:', err);
       return false;
     } finally {
       setIsLoadingMore(false);
@@ -213,6 +273,7 @@ export const useChunkedData = () => {
     loadedRange,
     loadSymbol,
     loadOlderChunks,
+    loadNewerChunks,
     loadAllChunks,
     loadChunksForRange,
   };
