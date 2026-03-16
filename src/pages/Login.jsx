@@ -58,7 +58,8 @@ export default function Login() {
           </button>
         </form>
         <div className="auth-footer">
-          <span>¿No tienes cuenta? <Link to="/register">Regístrate</Link></span>
+          <div>¿No tienes cuenta? <Link to="/register">Regístrate</Link></div>
+          <div style={{ marginTop: '10px' }}><Link to="/forgot-password" style={{ color: '#94a3b8', fontSize: '12px' }}>¿Olvidaste tu contraseña?</Link></div>
         </div>
       </div>
     </div>
