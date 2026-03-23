@@ -1,4 +1,5 @@
 import { useState, useCallback, useRef } from 'react';
+import { getFromDB, setToDB } from '../utils/indexedDB';
 
 const INITIAL_CHUNKS_TO_LOAD = 2;
 
@@ -27,18 +28,20 @@ export const useChunkedData = () => {
   const fetchChunk = useCallback(async (baseKey, chunkIdx) => {
     const baseUrl = (import.meta.env.VITE_DATA_URL || '/data').replace(/\/$/, '');
     const url = `${baseUrl}/${baseKey}_${chunkIdx}.json`;
+    const dbKey = `${baseKey}_${chunkIdx}`;
     
     try {
-      const cache = await caches.open('fxreplay-data-cache');
-      const cachedRes = await cache.match(url);
-      if (cachedRes) return await cachedRes.json();
+      const cachedData = await getFromDB('chunks', dbKey);
+      if (cachedData) return cachedData;
       
       const res = await fetch(url);
       if (!res.ok) throw new Error(`Chunk not found: ${url}`);
+      const data = await res.json();
       
-      cache.put(url, res.clone());
-      return await res.json();
-    } catch {
+      setToDB('chunks', dbKey, data);
+      return data;
+    } catch (err) {
+      console.warn(`Error fetching chunk ${dbKey}, intentando fallback directo...`, err);
       const res = await fetch(url);
       if (!res.ok) throw new Error(`Chunk not found: ${url}`);
       return await res.json();
@@ -183,35 +186,105 @@ export const useChunkedData = () => {
   }, [isLoadingMore, fetchChunk, buildMergedData]);
 
   const loadAllChunks = useCallback(async () => {
-    if (!metaRef.current) return;
+    if (!metaRef.current || isLoadingMore) return;
 
     const baseKey = currentKeyRef.current;
     const loaded = loadedChunksRef.current;
-    const promises = [];
+    const remaining = [];
 
     for (let i = 0; i < metaRef.current.totalChunks; i++) {
       if (!loaded.has(i)) {
-        promises.push(
-          fetchChunk(baseKey, i).then(chunkData => {
-            allChunksRef.current[i] = chunkData;
-            loadedChunksRef.current.add(i);
-          })
-        );
+        remaining.push(i);
       }
     }
 
-    if (promises.length === 0) return;
+    if (remaining.length === 0) return;
 
     setIsLoadingMore(true);
     try {
-      await Promise.all(promises);
+      const BATCH_SIZE = 5; // Concurrencia limitada
+      for (let i = 0; i < remaining.length; i += BATCH_SIZE) {
+        const batch = remaining.slice(i, i + BATCH_SIZE);
+        await Promise.all(
+          batch.map(idx =>
+            fetchChunk(baseKey, idx).then(chunkData => {
+              allChunksRef.current[idx] = chunkData;
+              loadedChunksRef.current.add(idx);
+            })
+          )
+        );
+      }
+
       if (currentKeyRef.current === baseKey) {
         setData(buildMergedData());
       }
     } finally {
       setIsLoadingMore(false);
     }
-  }, [fetchChunk, buildMergedData]);
+  }, [fetchChunk, buildMergedData, isLoadingMore]);
+
+  const loadChunkForTime = useCallback(async (targetTime) => {
+    if (!metaRef.current || isLoadingMore) return false;
+
+    const baseKey = currentKeyRef.current;
+    let low = 0;
+    let high = metaRef.current.totalChunks - 1;
+    let targetChunkIdx = -1;
+
+    setIsLoadingMore(true);
+    try {
+      while (low <= high) {
+        const mid = Math.floor((low + high) / 2);
+        let chunk = allChunksRef.current[mid];
+
+        if (!chunk) {
+          chunk = await fetchChunk(baseKey, mid);
+          allChunksRef.current[mid] = chunk;
+        }
+
+        if (!chunk || chunk.length === 0) {
+          high = mid - 1;
+          continue;
+        }
+
+        const firstTime = chunk[0].time;
+        const lastTime = chunk[chunk.length - 1].time;
+
+        if (targetTime >= firstTime && targetTime <= lastTime) {
+          targetChunkIdx = mid;
+          break;
+        } else if (targetTime < firstTime) {
+          high = mid - 1;
+        } else {
+          low = mid + 1;
+        }
+      }
+
+      if (targetChunkIdx !== -1) {
+        loadedChunksRef.current.add(targetChunkIdx);
+        
+        // Cargar bloque anterior para historial inmediato
+        if (targetChunkIdx > 0) {
+          let prevIdx = targetChunkIdx - 1;
+          if (!allChunksRef.current[prevIdx]) {
+            allChunksRef.current[prevIdx] = await fetchChunk(baseKey, prevIdx);
+          }
+          loadedChunksRef.current.add(prevIdx);
+        }
+
+        if (currentKeyRef.current === baseKey) {
+          setData(buildMergedData());
+        }
+        return true;
+      }
+      return false;
+    } catch (err) {
+      console.error('Error in loadChunkForTime:', err);
+      return false;
+    } finally {
+      setIsLoadingMore(false);
+    }
+  }, [fetchChunk, buildMergedData, isLoadingMore]);
 
   const loadChunksForRange = useCallback(async (startCandle, endCandle) => {
     if (!metaRef.current) return;
@@ -251,11 +324,11 @@ export const useChunkedData = () => {
     }
   }, [fetchChunk, buildMergedData]);
 
-  const hasOlderData = meta
+  const hasOlderData = meta && loadedChunksRef.current.size > 0
     ? Math.min(...loadedChunksRef.current) > 0
     : false;
 
-  const loadedRange = meta ? {
+  const loadedRange = meta && loadedChunksRef.current.size > 0 ? {
     startCandle: Math.min(...loadedChunksRef.current) * meta.chunkSize,
     endCandle: Math.min(
       (Math.max(...loadedChunksRef.current) + 1) * meta.chunkSize,
@@ -276,5 +349,6 @@ export const useChunkedData = () => {
     loadNewerChunks,
     loadAllChunks,
     loadChunksForRange,
+    loadChunkForTime,
   };
 };
