@@ -306,30 +306,18 @@ class SessionsRenderer {
         }
 
         const date = new Date(item.time * 1000);
-        const year = date.getUTCFullYear();
+
         const hour = date.getUTCHours();
 
-        const usDst = getUSDST(year);
-        const isNYDst = date >= usDst.start && date < usDst.end;
+        let lonStart = lonCfg.start;
+        let lonEnd = lonCfg.end;
 
-        const ukDst = getUKDST(year);
-        const isLonDst = date >= ukDst.start && date < ukDst.end;
+        let nyStart = nyCfg.start;
+        let nyEnd = nyCfg.end;
 
-        // Si se han configurado horas (0-23), asumimos que son horas base/local
-        // Aplicamos ligeras correcciones solo para Londres y NY para mantener el alineamiento
-        // Londres: local 08:00 (GMT) -> UTC 08:00. Durante BST (GMT+1), UTC 07:00.
-        let lonStart = lonCfg.start - (isLonDst ? 1 : 0);
-        let lonEnd = lonCfg.end - (isLonDst ? 1 : 0);
-
-        // NY: local 08:00 (EST -5) -> UTC 13:00. Durante EDT (-4), UTC 12:00.
-        // Si el usuario pone 8 y está en DST (-4), 8 + 4 = 12.
-        // Si no está en DST (-5), 8 + 5 = 13.
-        let nyStart = nyCfg.start + (isNYDst ? 4 : 5);
-        let nyEnd = nyCfg.end + (isNYDst ? 4 : 5);
-
-        // Asia: No se suele corregir de forma compleja.
         let asiaStart = asiaCfg.start;
         let asiaEnd = asiaCfg.end;
+
 
         const isInSession = (h, s, e) => {
           if (s <= e) return h >= s && h < e;
