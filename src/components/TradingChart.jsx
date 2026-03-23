@@ -232,11 +232,173 @@ class RectanglePrimitive {
   }
 }
 
+class SessionsRenderer {
+  constructor(source) { this._source = source; }
+  draw(target) {
+    target.useBitmapCoordinateSpace((scope) => {
+      const { context: ctx, horizontalPixelRatio: hr, verticalPixelRatio: vr } = scope;
+      const s = this._source;
+      if (!s._chart || !s._series || !s._data || !s._show) {
+        console.log("SessionsRenderer: Salida temprana", { 
+          chart: !!s._chart, 
+          series: !!s._series, 
+          hasData: !!s._data, 
+          show: s._show 
+        });
+        return;
+      }
+
+      const items = s._data;
+      const range = s._chart.timeScale().getVisibleLogicalRange();
+      if (!range) return;
+
+      const fromIdx = Math.max(0, Math.floor(range.from));
+      const toIdx = Math.min(items.length - 1, Math.ceil(range.to));
+
+      const config = s._config || {};
+      const asiaCfg = config.asia || { color: '#8b5cf6', opacity: 0.15, start: 0, end: 9 };
+      const lonCfg = config.london || { color: '#eab308', opacity: 0.15, start: 8, end: 17 };
+      const nyCfg = config.ny || { color: '#10b981', opacity: 0.15, start: 13, end: 22 };
+
+      const getUSDST = (year) => {
+        const march1 = new Date(Date.UTC(year, 2, 1));
+        const firstSunMarch = 1 + (7 - march1.getUTCDay()) % 7;
+        const secondSunMarch = firstSunMarch + 7;
+        const nov1 = new Date(Date.UTC(year, 10, 1));
+        const firstSunNov = 1 + (7 - nov1.getUTCDay()) % 7;
+        return {
+          start: new Date(Date.UTC(year, 2, secondSunMarch, 7)),
+          end: new Date(Date.UTC(year, 10, firstSunNov, 6)),
+        };
+      };
+
+      const getUKDST = (year) => {
+        const marchLast = new Date(Date.UTC(year, 2, 31));
+        const lastSunMarch = 31 - marchLast.getUTCDay();
+        const octLast = new Date(Date.UTC(year, 9, 31));
+        const lastSunOct = 31 - octLast.getUTCDay();
+        return {
+          start: new Date(Date.UTC(year, 2, lastSunMarch, 1)),
+          end: new Date(Date.UTC(year, 9, lastSunOct, 1)),
+        };
+      };
+
+      const hexToRgba = (hex, opacity) => {
+        const r = parseInt(hex.slice(1, 3), 16);
+        const g = parseInt(hex.slice(3, 5), 16);
+        const b = parseInt(hex.slice(5, 7), 16);
+        return `rgba(${r}, ${g}, ${b}, ${opacity})`;
+      };
+
+      for (let i = fromIdx; i <= toIdx; i++) {
+        const item = items[i];
+        if (!item) continue;
+        const x = s._chart.timeScale().timeToCoordinate(item.time);
+        if (x == null) continue;
+
+        let w = 4 * hr;
+        if (i < items.length - 1) {
+          const x_next = s._chart.timeScale().timeToCoordinate(items[i+1].time);
+          if (x_next != null) w = (x_next - x) * hr;
+        } else if (i > 0) {
+          const x_prev = s._chart.timeScale().timeToCoordinate(items[i-1].time);
+          if (x_prev != null) w = (x - x_prev) * hr;
+        }
+
+        const date = new Date(item.time * 1000);
+        const year = date.getUTCFullYear();
+        const hour = date.getUTCHours();
+
+        const usDst = getUSDST(year);
+        const isNYDst = date >= usDst.start && date < usDst.end;
+
+        const ukDst = getUKDST(year);
+        const isLonDst = date >= ukDst.start && date < ukDst.end;
+
+        // Si se han configurado horas (0-23), asumimos que son horas base/local
+        // Aplicamos ligeras correcciones solo para Londres y NY para mantener el alineamiento
+        // Londres: local 08:00 (GMT) -> UTC 08:00. Durante BST (GMT+1), UTC 07:00.
+        let lonStart = lonCfg.start - (isLonDst ? 1 : 0);
+        let lonEnd = lonCfg.end - (isLonDst ? 1 : 0);
+
+        // NY: local 08:00 (EST -5) -> UTC 13:00. Durante EDT (-4), UTC 12:00.
+        // Si el usuario pone 8 y está en DST (-4), 8 + 4 = 12.
+        // Si no está en DST (-5), 8 + 5 = 13.
+        let nyStart = nyCfg.start + (isNYDst ? 4 : 5);
+        let nyEnd = nyCfg.end + (isNYDst ? 4 : 5);
+
+        // Asia: No se suele corregir de forma compleja.
+        let asiaStart = asiaCfg.start;
+        let asiaEnd = asiaCfg.end;
+
+        const isInSession = (h, s, e) => {
+          if (s <= e) return h >= s && h < e;
+          return h >= s || h < e; // Cruza la medianoche (vuelve a 0)
+        };
+
+        let fillColors = [];
+        
+        if (isInSession(hour, asiaStart, asiaEnd)) {
+          fillColors.push(hexToRgba(asiaCfg.color, asiaCfg.opacity || 0.15));
+        }
+        if (isInSession(hour, lonStart, lonEnd)) {
+          fillColors.push(hexToRgba(lonCfg.color, lonCfg.opacity || 0.15));
+        }
+        if (isInSession(hour, nyStart, nyEnd)) {
+          fillColors.push(hexToRgba(nyCfg.color, nyCfg.opacity || 0.15));
+        }
+
+        const left = Math.round(x * hr);
+        const top = 0;
+        const height = ctx.canvas.height;
+        
+        for (const color of fillColors) {
+          ctx.fillStyle = color;
+          ctx.fillRect(left, top, Math.ceil(w), height);
+        }
+      }
+    });
+  }
+}
+
+class SessionsPaneView {
+  constructor(source) { this._source = source; this._renderer = new SessionsRenderer(source); }
+  update() {}
+  renderer() { return this._renderer; }
+}
+
+class SessionsPrimitive {
+  constructor(data, show = false, config = null) {
+    this._data = data;
+    this._show = show;
+    this._config = config;
+    this._chart = null;
+    this._series = null;
+    this._requestUpdate = null;
+    this._paneViews = [new SessionsPaneView(this)];
+  }
+  attached({ chart, series, requestUpdate }) {
+    this._chart = chart;
+    this._series = series;
+    this._requestUpdate = requestUpdate;
+  }
+  detached() { this._chart = null; this._series = null; this._requestUpdate = null; }
+  updateAllViews() {}
+  paneViews() { return this._paneViews; }
+  updateData(data, show, config) {
+    this._data = data;
+    this._show = show;
+    this._config = config;
+    if (this._requestUpdate) this._requestUpdate();
+  }
+}
+
 const TradingChart = forwardRef(({
   data, drawingMode, activePosition,
   onNeedMoreData, focusIndex, priceDecimals = 5, minMove = 0.00001,
   onSLTPDrag, dataKey, fiboLevels,
   pipMultiplier = 10000, lotSize = 0.01, pipValue = 10,
+  showSessions = false, sessionsConfig = null,
 }, ref) => {
   const chartContainerRef = useRef();
   const chartRef = useRef();
@@ -262,6 +424,7 @@ const TradingChart = forwardRef(({
   const drawingsRef = useRef([]);
   const firstPointRef = useRef(null);
   const cleanupPreviewRef = useRef(null);
+  const sessionsPrimitiveRef = useRef(null);
 
   useEffect(() => {
     drawingModeRef.current = drawingMode;
@@ -277,6 +440,12 @@ const TradingChart = forwardRef(({
   useEffect(() => { activePositionRef.current = activePosition; }, [activePosition]);
   useEffect(() => { onSLTPDragRef.current = onSLTPDrag; }, [onSLTPDrag]);
   useEffect(() => { fiboLevelsRef.current = fiboLevels; }, [fiboLevels]);
+
+  useEffect(() => {
+    if (sessionsPrimitiveRef.current) {
+      sessionsPrimitiveRef.current.updateData(data, showSessions, sessionsConfig);
+    }
+  }, [data, showSessions, sessionsConfig]);
 
   useEffect(() => {
     priceDecimalsRef.current = priceDecimals;
@@ -349,10 +518,33 @@ const TradingChart = forwardRef(({
           labelBackgroundColor: '#3b82f6',
         },
       },
+      localization: {
+        timeFormatter: (time) => {
+          if (typeof time === 'string') return time;
+          const date = new Date(time * 1000);
+          return new Intl.DateTimeFormat('es-ES', { 
+            timeZone: 'UTC', 
+            hour: '2-digit', 
+            minute: '2-digit',
+            hour12: false
+          }).format(date) + ' (UTC)';
+        }
+      },
       rightPriceScale: { borderColor: 'rgba(255, 255, 255, 0.05)' },
       timeScale: {
         borderColor: 'rgba(255, 255, 255, 0.05)',
         timeVisible: true,
+        tickMarkFormatter: (time, tickMarkType) => {
+          if (typeof time === 'string') return time;
+          const date = new Date(time * 1000);
+          const hours = date.getUTCHours().toString().padStart(2, '0');
+          const mins = date.getUTCMinutes().toString().padStart(2, '0');
+          
+          if (tickMarkType <= 2) { // 0=Year, 1=Month, 2=DayOfMonth
+             return new Intl.DateTimeFormat('es-ES', { timeZone: 'UTC', day: 'numeric', month: 'short' }).format(date);
+          }
+          return `${hours}:${mins}`;
+        }
       },
       handleScroll: true,
       handleScale: true,
@@ -373,6 +565,10 @@ const TradingChart = forwardRef(({
       },
     });
     seriesRef.current = candlestickSeries;
+
+    const sessionsPrim = new SessionsPrimitive(dataRef.current, showSessions, sessionsConfig);
+    candlestickSeries.attachPrimitive(sessionsPrim);
+    sessionsPrimitiveRef.current = sessionsPrim;
 
     // --- Drawing helpers ---
     let previewLines = [];
@@ -685,6 +881,12 @@ const TradingChart = forwardRef(({
 
     return () => {
       cleanupPreviewRef.current = null;
+      
+      if (sessionsPrimitiveRef.current) {
+        try { candlestickSeries.detachPrimitive(sessionsPrimitiveRef.current); } catch {}
+        sessionsPrimitiveRef.current = null;
+      }
+
       container.removeEventListener('pointerdown', handlePointerDown);
       container.removeEventListener('pointermove', handlePointerMove);
       container.removeEventListener('pointerup', handlePointerUp);

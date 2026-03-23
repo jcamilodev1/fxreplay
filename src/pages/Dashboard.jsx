@@ -3,7 +3,7 @@ import { supabase } from '../lib/supabase';
 import {
   Minus, MousePointer2, TrendingUp, RectangleHorizontal,
   GitBranch, Undo2, Trash2, Loader2, Rewind,
-  ArrowBigLeftDash, ArrowBigRightDash, AlertTriangle, Settings2,
+  ArrowBigLeftDash, ArrowBigRightDash, AlertTriangle, Settings2, Clock,
 } from 'lucide-react';
 import TradingChart from '../components/TradingChart';
 import Sidebar from '../components/Sidebar';
@@ -15,6 +15,7 @@ import FiboSettings, { loadFiboLevels } from '../components/FiboSettings';
 import { useBacktest } from '../hooks/useBacktest';
 import { useChunkedData } from '../hooks/useChunkedData';
 import SettingsModal from '../components/SettingsModal';
+import SessionsSettings, { loadSessionsConfig } from '../components/SessionsSettings';
 
 const SYMBOLS = [
   { id: 'eurusd', label: 'EUR/USD', decimals: 5, pipMult: 10000, minMove: 0.00001, pipValue: 10, defaultSL: 0.00300, defaultTP: 0.00600 },
@@ -32,6 +33,9 @@ function App() {
   const [drawingMode, setDrawingMode] = useState(null);
   const [fiboLevels, setFiboLevels] = useState(loadFiboLevels);
   const [showFiboSettings, setShowFiboSettings] = useState(false);
+  const [showSessions, setShowSessions] = useState(false);
+  const [sessionsConfig, setSessionsConfig] = useState(loadSessionsConfig);
+  const [showSessionsSettings, setShowSessionsSettings] = useState(false);
   const [selectedSymbol, setSelectedSymbol] = useState('eurusd');
   const [selectedTF, setSelectedTF] = useState('H1');
   const [replayStartInput, setReplayStartInput] = useState(50);
@@ -67,6 +71,7 @@ function App() {
     loadNewerChunks,
     loadAllChunks,
     loadChunksForRange,
+    loadChunkForTime,
   } = useChunkedData();
 
   useEffect(() => {
@@ -249,17 +254,11 @@ function App() {
 
   useEffect(() => {
     if (!pendingReplayTimeRef.current || isLoading || isLoadingMore) return;
-    if (hasOlderData) {
-      if (chartData?.length) setReplayIndex(chartData.length - 1);
-      loadAllChunks();
-      return;
-    }
     if (!chartData || chartData.length === 0) return;
 
     const targetTime = pendingReplayTimeRef.current;
-    pendingReplayTimeRef.current = null;
 
-    let closestIdx = 0;
+    let closestIdx = -1;
     for (let i = 0; i < chartData.length; i++) {
       if (chartData[i].time <= targetTime) {
         closestIdx = i;
@@ -268,8 +267,26 @@ function App() {
       }
     }
 
-    setReplayIndex(closestIdx);
-  }, [chartData, isLoading, isLoadingMore, hasOlderData, loadAllChunks, setReplayIndex]);
+    const isPastEarliest = chartData[0].time > targetTime;
+
+    if (!isPastEarliest && closestIdx !== -1) {
+      pendingReplayTimeRef.current = null;
+      setReplayIndex(closestIdx);
+      return;
+    }
+
+    if (isPastEarliest) {
+      loadChunkForTime(targetTime).then(success => {
+        if (!success) {
+          pendingReplayTimeRef.current = null;
+          setReplayIndex(0);
+        }
+      });
+    } else if (closestIdx !== -1) {
+      pendingReplayTimeRef.current = null;
+      setReplayIndex(closestIdx);
+    }
+  }, [chartData, isLoading, isLoadingMore, loadChunkForTime, setReplayIndex]);
 
   useEffect(() => {
     if (replayActive && chartData && chartData.length > 0) {
@@ -454,28 +471,42 @@ function App() {
                 >
                   <RectangleHorizontal size={18} />
                 </button>
-                <button
-                  onClick={() => setDrawingMode(drawingMode === 'fibonacci' ? null : 'fibonacci')}
-                  className={`control-btn ${drawingMode === 'fibonacci' ? 'active' : ''}`}
-                  title="Fibonacci"
-                >
-                  <GitBranch size={18} />
-                </button>
                 <div style={{ position: 'relative' }}>
                   <button
-                    onClick={() => setShowFiboSettings(v => !v)}
-                    className={`control-btn ${showFiboSettings ? 'active' : ''}`}
-                    title="Configurar niveles Fibonacci"
-                    style={{ width: 28, height: 28 }}
+                    onClick={() => setDrawingMode(drawingMode === 'fibonacci' ? null : 'fibonacci')}
+                    onDoubleClick={() => setShowFiboSettings(v => !v)}
+                    className={`control-btn ${drawingMode === 'fibonacci' ? 'active' : ''}`}
+                    title="Clic: Fibonacci | Doble Clic: Configurar"
                   >
-                    <Settings2 size={13} />
+                    <GitBranch size={18} />
                   </button>
                   {showFiboSettings && (
-                    <FiboSettings
-                      levels={fiboLevels}
-                      onChange={setFiboLevels}
-                      onClose={() => setShowFiboSettings(false)}
-                    />
+                    <div style={{ position: 'absolute', left: '100%', top: 0, marginLeft: '8px', zIndex: 1000 }}>
+                      <FiboSettings
+                        levels={fiboLevels}
+                        onChange={setFiboLevels}
+                        onClose={() => setShowFiboSettings(false)}
+                      />
+                    </div>
+                  )}
+                </div>
+                <div style={{ position: 'relative' }}>
+                  <button
+                    onClick={() => setShowSessions(v => !v)}
+                    onDoubleClick={() => setShowSessionsSettings(v => !v)}
+                    className={`control-btn ${showSessions ? 'active' : ''}`}
+                    title="Clic: Sesiones (Alternar) | Doble Clic: Configurar"
+                  >
+                    <Clock size={16} />
+                  </button>
+                  {showSessionsSettings && (
+                    <div style={{ position: 'absolute', left: '100%', top: 0, marginLeft: '8px', zIndex: 1000 }}>
+                      <SessionsSettings
+                        config={sessionsConfig}
+                        onChange={setSessionsConfig}
+                        onClose={() => setShowSessionsSettings(false)}
+                      />
+                    </div>
                   )}
                 </div>
                 <div className="controls-divider" />
@@ -528,6 +559,8 @@ function App() {
                   pipMultiplier={symbolInfo?.pipMult || 10000}
                   lotSize={lotSize}
                   pipValue={symbolInfo?.pipValue || 10}
+                  showSessions={showSessions}
+                  sessionsConfig={sessionsConfig}
                 />
               </div>
 
