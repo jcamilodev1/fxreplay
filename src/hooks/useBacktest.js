@@ -4,7 +4,7 @@ import { calculateMetrics } from '../utils/backtestEngine';
 const EMPTY_DATA = [];
 const INITIAL_METRICS = { profit: 0, winRate: 0, drawdown: 0, grossProfit: 0, grossLoss: 0, maxLoss: 0 };
 
-export const useBacktest = (fullData, dataKey, pipMultiplier = 10000, lotSize = 0.01, pipValue = 10) => {
+export const useBacktest = (fullData, dataKey, pipMultiplier = 10000, lotSize = 0.01, pipValue = 10, initialBalance = 10000) => {
   const [replayActive, setReplayActive] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -19,6 +19,7 @@ export const useBacktest = (fullData, dataKey, pipMultiplier = 10000, lotSize = 
   const pipValueRef = useRef(pipValue);
   const fullDataRef = useRef(fullData);
   const activePositionRef = useRef(activePosition);
+  const initialBalanceRef = useRef(initialBalance);
 
   useEffect(() => { lotSizeRef.current = lotSize; }, [lotSize]);
   useEffect(() => { pipValueRef.current = pipValue; }, [pipValue]);
@@ -95,7 +96,7 @@ export const useBacktest = (fullData, dataKey, pipMultiplier = 10000, lotSize = 
 
     setManualTrades(prev => {
       const newTrades = [...prev, completedTrade];
-      setMetrics(calculateMetrics(newTrades, 10000));
+      setMetrics(calculateMetrics(newTrades, initialBalanceRef.current));
       return newTrades;
     });
     setActivePosition(null);
@@ -186,7 +187,7 @@ export const useBacktest = (fullData, dataKey, pipMultiplier = 10000, lotSize = 
         if (newTime != null) {
           setManualTrades(prevTrades => {
             const validTrades = prevTrades.filter(t => t.exitTime <= newTime);
-            setMetrics(calculateMetrics(validTrades, 10000));
+            setMetrics(calculateMetrics(validTrades, initialBalanceRef.current));
             return validTrades;
           });
         }

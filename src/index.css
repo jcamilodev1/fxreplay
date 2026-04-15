@@ -62,6 +62,7 @@ body {
   width: 100%;
   height: 100%;
   background: radial-gradient(circle at 50% -20%, #1e293b 0%, var(--bg-space) 100%);
+  position: relative;
 }
 
 /* Sidebar Styling */
@@ -72,12 +73,126 @@ body {
   display: flex;
   flex-direction: column;
   padding: 24px;
-  z-index: 10;
+  z-index: 50;
   transition: width 0.3s cubic-bezier(0.16, 1, 0.3, 1),
-              padding 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+              padding 0.3s cubic-bezier(0.16, 1, 0.3, 1),
+              transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
   position: relative;
   overflow: hidden;
+  flex-shrink: 0;
 }
+
+/* Mobile sidebar overlay */
+@media (max-width: 768px) {
+  .sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    height: 100%;
+    transform: translateX(-100%);
+    box-shadow: 4px 0 24px rgba(0, 0, 0, 0.6);
+  }
+
+  .sidebar.mobile-open {
+    transform: translateX(0);
+  }
+
+  .sidebar-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.5);
+    z-index: 40;
+    backdrop-filter: blur(2px);
+  }
+}
+
+/* Tablet & small laptop overlay (up to 1024px) */
+@media (max-width: 1024px) {
+  .sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    height: 100%;
+    width: var(--sidebar-w);
+    transform: translateX(-100%);
+    box-shadow: 4px 0 24px rgba(0, 0, 0, 0.6);
+    z-index: 50;
+  }
+
+  .sidebar.mobile-open {
+    transform: translateX(0);
+  }
+
+  .sidebar-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.5);
+    z-index: 40;
+    backdrop-filter: blur(2px);
+  }
+
+  /* Header: allow natural height so wrapped rows don't clip into the chart */
+  .header {
+    height: auto;
+    min-height: 52px;
+    padding: 6px 14px;
+    gap: 6px;
+  }
+
+  .status-pills {
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+
+  .pill {
+    padding: 5px 10px;
+    font-size: 0.71rem;
+  }
+
+  .selector-btn.tf {
+    padding: 4px 7px;
+    font-size: 0.62rem;
+  }
+
+  /* Grid: single column — metrics panel goes below the chart as a horizontal row */
+  .dashboard-grid {
+    grid-template-columns: 1fr;
+    padding: 10px 14px;
+    gap: 10px;
+  }
+
+  .metrics-section {
+    flex-direction: row;
+    overflow-x: auto;
+    overflow-y: hidden;
+    gap: 12px;
+    padding-right: 0;
+    padding-bottom: 4px;
+    flex-shrink: 0;
+  }
+
+  .metrics-section .metrics-card {
+    min-width: 220px;
+    flex-shrink: 0;
+    padding: 16px;
+  }
+
+  .card-title {
+    margin-bottom: 12px;
+    font-size: 0.7rem;
+    letter-spacing: 1px;
+  }
+
+  .trade-log {
+    min-width: 300px;
+    flex-shrink: 0;
+  }
+
+  .chart-card {
+    max-height: calc(100vh - 260px);
+  }
+}
+
 
 .sidebar-collapsed {
   width: 72px;
@@ -240,6 +355,28 @@ body {
   border-bottom: 1px solid var(--glass-edge);
   background: rgba(10, 12, 16, 0.5);
   backdrop-filter: blur(var(--blur));
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+/* Responsive header */
+@media (max-width: 768px) {
+  .header {
+    height: auto;
+    min-height: 56px;
+    padding: 8px 12px;
+    gap: 8px;
+  }
+
+  .status-pills {
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+
+  .pill {
+    padding: 6px 10px;
+    font-size: 0.75rem;
+  }
 }
 
 .status-pills {
@@ -279,15 +416,82 @@ body {
   min-height: 0;
 }
 
+/* Responsive: Laptops & Tablets (up to 1440px) */
+@media (max-width: 1440px) {
+  .header {
+    height: auto;
+    min-height: var(--header-h);
+    padding: 8px 16px;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .dashboard-grid {
+    grid-template-columns: 1fr;
+    grid-template-rows: min-content min-content;
+    align-content: start;
+    padding: 16px;
+    gap: 16px;
+  }
+
+  .chart-card {
+    height: clamp(300px, 55vh, 600px);
+    max-height: none;
+    flex: 0 0 auto;
+  }
+
+  .metrics-section {
+    flex-direction: row;
+    flex-wrap: wrap;
+    overflow-x: auto;
+    overflow-y: hidden;
+    gap: 16px;
+    padding-right: 0;
+    padding-bottom: 4px;
+  }
+
+  .metrics-section .metrics-card {
+    min-width: 300px;
+    flex-shrink: 0;
+  }
+
+  .trade-log {
+    min-width: 350px;
+  }
+}
+
+/* Responsive: mobile */
+@media (max-width: 768px) {
+  .dashboard-grid {
+    padding: 12px;
+    gap: 12px;
+  }
+
+  .chart-card {
+    max-height: 60vh;
+    min-height: 250px;
+  }
+
+  .metrics-section .metrics-card {
+    min-width: 200px;
+  }
+
+  .trade-log {
+    min-width: 280px;
+  }
+}
+
 .chart-section {
   display: flex;
   flex-direction: column;
   gap: 16px;
-  min-height: 0;
+  min-height: min-content;
+  flex-shrink: 0;
+  width: 100%;
 }
 
 .chart-card {
-  flex: 1 1 0;
+  flex: 1 1 auto;
   min-height: 300px;
   max-height: calc(100vh - 320px);
   background: var(--bg-deep);
@@ -322,6 +526,31 @@ body {
   border: 1px solid var(--glass-edge);
   border-radius: 14px;
   backdrop-filter: blur(12px);
+}
+
+/* Responsive chart controls */
+@media (max-width: 768px) {
+  .chart-controls {
+    top: 8px;
+    left: 8px;
+    padding: 4px;
+    gap: 2px;
+    border-radius: 10px;
+  }
+
+  .control-btn {
+    width: 32px;
+    height: 32px;
+  }
+
+  .control-btn svg {
+    width: 16px;
+    height: 16px;
+  }
+
+  .controls-divider {
+    width: 24px;
+  }
 }
 
 .controls-divider {
@@ -633,11 +862,7 @@ body {
 
 /* Replay Start Bar */
 .replay-start-bar {
-  position: absolute;
-  bottom: 16px;
-  left: 16px;
-  right: 16px;
-  z-index: 10;
+  flex-shrink: 0;
   padding: 10px 16px;
   background: rgba(0, 0, 0, 0.65);
   backdrop-filter: blur(12px);
@@ -646,6 +871,28 @@ body {
   display: flex;
   align-items: center;
   gap: 12px;
+}
+
+/* Responsive replay bar */
+@media (max-width: 768px) {
+  .replay-start-bar {
+    padding: 8px 10px;
+    gap: 8px;
+    border-radius: 10px;
+    flex-wrap: wrap;
+  }
+
+  .replay-start-bar > span,
+  .replay-start-bar > button,
+  .replay-start-bar > div {
+    font-size: 10px;
+  }
+
+  .timeline-slider {
+    order: 10;
+    width: 100%;
+    flex-basis: 100%;
+  }
 }
 
 /* Custom Slider */

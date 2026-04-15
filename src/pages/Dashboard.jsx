@@ -1,9 +1,10 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { supabase } from '../lib/supabase';
+import { useChart } from '../contexts/ChartContext';
+import { useAuth } from '../contexts/AuthContext';
 import {
   Minus, MousePointer2, TrendingUp, RectangleHorizontal,
   GitBranch, Undo2, Trash2, Loader2, Rewind,
-  ArrowBigLeftDash, ArrowBigRightDash, AlertTriangle, Settings2, Clock,
+  ArrowBigLeftDash, ArrowBigRightDash, AlertTriangle, Clock,
 } from 'lucide-react';
 import TradingChart from '../components/TradingChart';
 import Sidebar from '../components/Sidebar';
@@ -11,11 +12,14 @@ import Header from '../components/Header';
 import ExecutionPanel from '../components/ExecutionPanel';
 import TradeHistory from '../components/TradeHistory';
 import MetricsSummary from '../components/MetricsSummary';
-import FiboSettings, { loadFiboLevels } from '../components/FiboSettings';
+import FiboSettings from '../components/FiboSettings';
+import SessionsSettings from '../components/SessionsSettings';
 import { useBacktest } from '../hooks/useBacktest';
-import { useChunkedData } from '../hooks/useChunkedData';
 import SettingsModal from '../components/SettingsModal';
-import SessionsSettings, { loadSessionsConfig } from '../components/SessionsSettings';
+import { useSymbolState } from '../hooks/useSymbolState';
+import { useRiskManager } from '../hooks/useRiskManager';
+import { useDrawingState } from '../hooks/useDrawingState';
+import { useReplayControls } from '../hooks/useReplayControls';
 
 const SYMBOLS = [
   { id: 'eurusd', label: 'EUR/USD', decimals: 5, pipMult: 10000, minMove: 0.00001, pipValue: 10, defaultSL: 0.00300, defaultTP: 0.00600 },
@@ -29,66 +33,84 @@ const TF_SL_SCALE = {
   H1: 1, H4: 2, D1: 5, W1: 10,
 };
 
-function App() {
-  const [drawingMode, setDrawingMode] = useState(null);
-  const [fiboLevels, setFiboLevels] = useState(loadFiboLevels);
-  const [showFiboSettings, setShowFiboSettings] = useState(false);
-  const [showSessions, setShowSessions] = useState(false);
-  const [sessionsConfig, setSessionsConfig] = useState(loadSessionsConfig);
-  const [showSessionsSettings, setShowSessionsSettings] = useState(false);
-  const [selectedSymbol, setSelectedSymbol] = useState('eurusd');
-  const [selectedTF, setSelectedTF] = useState('H1');
-  const [replayStartInput, setReplayStartInput] = useState(50);
-  const [selectingStart, setSelectingStart] = useState(false);
-  const [lotSize, setLotSize] = useState(0.01);
-  const [lotInput, setLotInput] = useState('0.01');
-  const [riskMode, setRiskMode] = useState('lots');
-  const [riskPercent, setRiskPercent] = useState(1);
-  const [riskPercentInput, setRiskPercentInput] = useState('1');
-  const [accountBalance, setAccountBalance] = useState(10000);
-  const [balanceInput, setBalanceInput] = useState('10000');
-  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  const chartComponentRef = useRef(null);
-  const loadMoreThrottleRef = useRef(false);
-
-  const symbolInfo = SYMBOLS.find(s => s.id === selectedSymbol);
-
-  const handleSaveSettings = useCallback((newBalance) => {
-    setAccountBalance(newBalance);
-    setBalanceInput(newBalance.toString());
-  }, []);
-
+function Dashboard() {
+  const { logout } = useAuth();
   const {
     data: chartData,
     meta,
     isLoading,
     isLoadingMore,
     loadError,
-    hasOlderData,
     loadedRange,
     loadSymbol,
-    loadOlderChunks,
     loadNewerChunks,
     loadAllChunks,
     loadChunksForRange,
     loadChunkForTime,
-  } = useChunkedData();
+    handleNeedMoreData,
+    pendingReplayTimeRef,
+    pendingReplayIndexRef,
+  } = useChart();
+
+  const {
+    selectedSymbol,
+    setSelectedSymbol,
+    selectedTF,
+    setSelectedTF,
+    replayStartInput,
+    setReplayStartInput,
+    selectingStart,
+    setSelectingStart,
+    handleShowSelector,
+    handleCancelSelector,
+  } = useSymbolState();
+
+  const symbolInfo = SYMBOLS.find(s => s.id === selectedSymbol);
+
+  const {
+    lotSize,
+    setLotSize,
+    lotInput,
+    setLotInput,
+    riskMode,
+    setRiskMode,
+    riskPercentInput,
+    accountBalance,
+    balanceInput,
+    parsePrice,
+    calcLotFromPercent,
+    handleLotInputChange,
+    handleLotInputBlur,
+    handleRiskPercentChange,
+    handleRiskPercentBlur,
+    handleBalanceChange,
+    handleBalanceBlur,
+    handleSaveSettings,
+  } = useRiskManager();
+
+  const {
+    drawingMode,
+    setDrawingMode,
+    fiboLevels,
+    setFiboLevels,
+    showFiboSettings,
+    setShowFiboSettings,
+    showSessions,
+    setShowSessions,
+    sessionsConfig,
+    setSessionsConfig,
+    showSessionsSettings,
+    setShowSessionsSettings,
+  } = useDrawingState();
+
+  const [slPrice, setSlPrice] = useState('');
+  const [tpPrice, setTpPrice] = useState('');
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const chartComponentRef = useRef(null);
 
   useEffect(() => {
     loadSymbol(selectedSymbol, selectedTF);
   }, [selectedSymbol, selectedTF, loadSymbol]);
-
-  const handleNeedMoreData = useCallback(() => {
-    if (loadMoreThrottleRef.current || !hasOlderData) return;
-    loadMoreThrottleRef.current = true;
-    loadOlderChunks(2).finally(() => {
-      setTimeout(() => { loadMoreThrottleRef.current = false; }, 500);
-    });
-  }, [hasOlderData, loadOlderChunks]);
-
-  const handleLogout = async () => {
-    await supabase.auth.signOut();
-  };
 
   const {
     replayActive,
@@ -112,11 +134,19 @@ function App() {
     executeSell: executeSellHook,
     closePosition,
     updateSLTP,
-    setReplayIndex
-  } = useBacktest(chartData, selectedSymbol, symbolInfo?.pipMult || 10000, lotSize, symbolInfo?.pipValue || 10);
+    setReplayIndex,
+  } = useBacktest(chartData, selectedSymbol, symbolInfo?.pipMult || 10000, lotSize, symbolInfo?.pipValue || 10, accountBalance);
 
-  const pendingReplayTimeRef = useRef(null);
-  const pendingReplayIndexRef = useRef(null);
+  useReplayControls({
+    stepForward,
+    stepBackward,
+    isPlaying,
+    pausePlaying,
+    startPlaying,
+    replayActive,
+    exitReplay,
+    selectingStart,
+  });
 
   const absoluteIndex = loadedRange?.startCandle != null ? loadedRange.startCandle + currentIndex : currentIndex;
 
@@ -127,13 +157,13 @@ function App() {
       const targetLocal = loadedRange?.startCandle != null ? targetAbsIndex - loadedRange.startCandle : targetAbsIndex;
       jumpTo(targetLocal);
     }
-  }, [chartData, isLoading, isLoadingMore, loadedRange, jumpTo]);
+  }, [chartData, isLoading, isLoadingMore, loadedRange, jumpTo, pendingReplayIndexRef]);
 
   const handleJumpAbs = useCallback(async (targetAbsIndex) => {
     if (!meta || targetAbsIndex < 0 || targetAbsIndex >= meta.totalCandles) return;
-    
+
     const targetLocal = loadedRange?.startCandle != null ? targetAbsIndex - loadedRange.startCandle : targetAbsIndex;
-    
+
     if (targetLocal < 0 || targetLocal >= (chartData?.length || 0)) {
        pausePlaying();
        pendingReplayIndexRef.current = targetAbsIndex;
@@ -147,10 +177,7 @@ function App() {
     } else {
        jumpTo(targetLocal);
     }
-  }, [meta, loadedRange, chartData, pausePlaying, loadChunksForRange, jumpTo]);
-
-  const [slPrice, setSlPrice] = useState('');
-  const [tpPrice, setTpPrice] = useState('');
+  }, [meta, loadedRange, chartData, pausePlaying, loadChunksForRange, jumpTo, pendingReplayIndexRef]);
 
   useEffect(() => {
     setSlPrice('');
@@ -164,12 +191,6 @@ function App() {
     }
   }, [activePosition]);
 
-  const parsePrice = (val) => {
-    if (!val) return null;
-    const parsed = parseFloat(val.toString().replace(',', '.'));
-    return isNaN(parsed) ? null : parsed;
-  };
-
   const currentBalance = accountBalance + (metrics?.profit || 0);
 
   const getScaledSLTP = () => {
@@ -177,16 +198,6 @@ function App() {
     const slDist = (symbolInfo?.defaultSL ?? 0.00300) * scale;
     const tpDist = (symbolInfo?.defaultTP ?? 0.00600) * scale;
     return { slDist, tpDist };
-  };
-
-  const calcLotFromPercent = (slDist) => {
-    if (slDist <= 0) return 0.01;
-    const pipMult = symbolInfo?.pipMult || 10000;
-    const pVal = symbolInfo?.pipValue || 10;
-    const slPips = slDist * pipMult;
-    const riskDollars = currentBalance * (riskPercent / 100);
-    const calculated = riskDollars / (slPips * pVal);
-    return Math.max(0.01, parseFloat(calculated.toFixed(2)));
   };
 
   const handleBuy = () => {
@@ -204,7 +215,7 @@ function App() {
     setTpPrice(tp.toFixed(dec));
 
     if (riskMode === 'percent') {
-      const lots = calcLotFromPercent(Math.abs(entry - sl));
+      const lots = calcLotFromPercent(Math.abs(entry - sl), currentBalance, symbolInfo);
       setLotSize(lots);
       setLotInput(lots.toString());
     }
@@ -226,7 +237,7 @@ function App() {
     setTpPrice(tp.toFixed(dec));
 
     if (riskMode === 'percent') {
-      const lots = calcLotFromPercent(Math.abs(sl - entry));
+      const lots = calcLotFromPercent(Math.abs(sl - entry), currentBalance, symbolInfo);
       setLotSize(lots);
       setLotInput(lots.toString());
     }
@@ -250,7 +261,7 @@ function App() {
       if (isPlaying) pausePlaying();
     }
     setSelectedTF(tf);
-  }, [selectedTF, replayActive, chartData, currentIndex, isPlaying, pausePlaying]);
+  }, [selectedTF, replayActive, chartData, currentIndex, isPlaying, pausePlaying, setSelectedTF, pendingReplayTimeRef]);
 
   useEffect(() => {
     if (!pendingReplayTimeRef.current || isLoading || isLoadingMore) return;
@@ -286,7 +297,7 @@ function App() {
       pendingReplayTimeRef.current = null;
       setReplayIndex(closestIdx);
     }
-  }, [chartData, isLoading, isLoadingMore, loadChunkForTime, setReplayIndex]);
+  }, [chartData, isLoading, isLoadingMore, loadChunkForTime, setReplayIndex, pendingReplayTimeRef]);
 
   useEffect(() => {
     if (replayActive && chartData && chartData.length > 0) {
@@ -298,115 +309,22 @@ function App() {
     }
   }, [replayActive, currentIndex, chartData, isLoadingMore, loadNewerChunks]);
 
-  const handleShowSelector = useCallback(async () => {
-    setSelectingStart(true);
-    await loadAllChunks();
-    if (meta?.totalCandles) {
-      setReplayStartInput(Math.floor(meta.totalCandles * 0.8));
-    }
-  }, [meta, loadAllChunks]);
-
-  const handleCancelSelector = useCallback(() => {
-    setSelectingStart(false);
-  }, []);
-
   const handleEnterReplay = useCallback(() => {
     const total = chartData?.length || 0;
     if (total === 0) return;
     const startIdx = Math.max(0, Math.min(replayStartInput, total - 1));
     enterReplay(startIdx);
     setSelectingStart(false);
-  }, [replayStartInput, chartData, enterReplay]);
+  }, [replayStartInput, chartData, enterReplay, setSelectingStart]);
 
   const handleExitReplay = useCallback(() => {
     exitReplay();
     setSelectingStart(false);
-  }, [exitReplay]);
+  }, [exitReplay, setSelectingStart]);
 
-  useEffect(() => {
-    const handleKeyDown = (e) => {
-      if (e.target.tagName === 'INPUT') return;
-
-      switch(e.key) {
-        case 'ArrowRight':
-          stepForward();
-          break;
-        case 'ArrowLeft':
-          stepBackward();
-          break;
-        case ' ':
-          e.preventDefault();
-          if (replayActive) {
-            if (isPlaying) pausePlaying();
-            else startPlaying();
-          }
-          break;
-        case 'Escape':
-          if (replayActive) { exitReplay(); setSelectingStart(false); }
-          else if (selectingStart) setSelectingStart(false);
-          break;
-        default:
-          break;
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [stepForward, stepBackward, isPlaying, pausePlaying, startPlaying, replayActive, exitReplay, selectingStart]);
-
-  const handleLotInputChange = useCallback((e) => {
-    const raw = e.target.value.replace(/[^0-9.]/g, '');
-    setLotInput(raw);
-    const num = parseFloat(raw);
-    if (!isNaN(num) && num > 0) setLotSize(num);
-  }, []);
-
-  const handleLotInputBlur = useCallback(() => {
-    const num = parseFloat(lotInput);
-    if (isNaN(num) || num <= 0) {
-      setLotInput('0.01');
-      setLotSize(0.01);
-    } else {
-      setLotInput(num.toString());
-    }
-  }, [lotInput]);
-
-  const handleRiskPercentChange = useCallback((e) => {
-    const raw = e.target.value.replace(/[^0-9.]/g, '');
-    setRiskPercentInput(raw);
-    const num = parseFloat(raw);
-    if (!isNaN(num) && num > 0 && num <= 100) setRiskPercent(num);
-  }, []);
-
-  const handleRiskPercentBlur = useCallback(() => {
-    const num = parseFloat(riskPercentInput);
-    if (isNaN(num) || num <= 0) {
-      setRiskPercentInput('1');
-      setRiskPercent(1);
-    } else {
-      const clamped = Math.min(num, 100);
-      setRiskPercentInput(clamped.toString());
-      setRiskPercent(clamped);
-    }
-  }, [riskPercentInput]);
-
-  const handleBalanceChange = useCallback((e) => {
-    const raw = e.target.value.replace(/[^0-9.]/g, '');
-    setBalanceInput(raw);
-    const num = parseFloat(raw);
-    if (!isNaN(num) && num > 0) setAccountBalance(num);
-  }, []);
-
-  const handleBalanceBlur = useCallback(() => {
-    const num = parseFloat(balanceInput);
-    if (isNaN(num) || num <= 0) {
-      setBalanceInput('10000');
-      setAccountBalance(10000);
-    } else {
-      setBalanceInput(num.toString());
-      setAccountBalance(num);
-    }
-  }, [balanceInput]);
+  const handleLogout = async () => {
+    await logout();
+  };
 
   return (
     <div className="app-container">
@@ -431,7 +349,7 @@ function App() {
           onStepBackward={stepBackward}
           onTogglePlay={() => isPlaying ? pausePlaying() : startPlaying()}
           onExitReplay={handleExitReplay}
-          onShowSelector={handleShowSelector}
+          onShowSelector={() => handleShowSelector(meta, loadAllChunks)}
           onCancelSelector={handleCancelSelector}
           onLogout={handleLogout}
           currentBalance={currentBalance}
@@ -570,82 +488,82 @@ function App() {
                   <span className="text-[11px] font-semibold text-blue-300">Cargando más datos...</span>
                 </div>
               )}
+            </div>
 
-              {selectingStart && !replayActive && (
-                <div className="replay-start-bar">
-                  {isLoadingMore ? (
-                    <>
-                      <Loader2 size={14} className="animate-spin text-blue-400" />
-                      <span className="text-[11px] font-semibold text-slate-300">Cargando datos completos para replay...</span>
-                    </>
-                  ) : (
-                    <>
-                      <div className="flex items-center gap-3 mr-4">
-                        <Rewind size={14} className="text-blue-400" />
-                        <span className="text-[11px] font-semibold text-slate-300 whitespace-nowrap">Punto de inicio:</span>
-                      </div>
-                      <input
-                        type="range"
-                        min="0"
-                        max={Math.max((chartData?.length || 1) - 1, 0)}
-                        value={Math.min(replayStartInput, (chartData?.length || 1) - 1)}
-                        onChange={(e) => setReplayStartInput(parseInt(e.target.value))}
-                        className="timeline-slider"
-                      />
-                      <span className="text-[10px] font-mono text-slate-400 min-w-[90px] text-center">
-                        {replayStartInput.toLocaleString()} / {(chartData?.length || 0).toLocaleString()}
-                      </span>
-                      <button
-                        onClick={handleEnterReplay}
-                        className="ml-2 px-4 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-[11px] font-bold rounded-lg transition-all whitespace-nowrap"
-                      >
-                        GO
-                      </button>
-                    </>
-                  )}
-                </div>
-              )}
-
-              {replayActive && (
-                <div className="replay-start-bar">
-                  <div className="flex items-center gap-2 pr-4 border-r border-white/10">
-                    <button
-                      onClick={() => handleJumpAbs(absoluteIndex - 10)}
-                      className="p-1 hover:text-white text-slate-400 transition-all"
-                      title="-10 Velas"
-                    >
-                      <ArrowBigLeftDash size={16} />
-                    </button>
-                    <span className="text-[10px] font-mono text-slate-300 min-w-[90px] text-center">
-                      {absoluteIndex.toLocaleString()} / {totalCandles.toLocaleString()}
+            {selectingStart && !replayActive && (
+              <div className="replay-start-bar flex-wrap">
+                {isLoadingMore ? (
+                  <>
+                    <Loader2 size={14} className="animate-spin text-blue-400" />
+                    <span className="text-[11px] font-semibold text-slate-300">Cargando datos completos para replay...</span>
+                  </>
+                ) : (
+                  <>
+                    <div className="flex items-center gap-2 md:mr-4 flex-shrink-0">
+                      <Rewind size={14} className="text-blue-400 hidden sm:block" />
+                      <span className="text-[10px] md:text-[11px] font-semibold text-slate-300 whitespace-nowrap">Punto de inicio:</span>
+                    </div>
+                    <input
+                      type="range"
+                      min="0"
+                      max={Math.max((chartData?.length || 1) - 1, 0)}
+                      value={Math.min(replayStartInput, (chartData?.length || 1) - 1)}
+                      onChange={(e) => setReplayStartInput(parseInt(e.target.value))}
+                      className="timeline-slider flex-1 min-w-[150px]"
+                    />
+                    <span className="text-[10px] font-mono text-slate-400 min-w-[70px] md:min-w-[90px] text-center flex-shrink-0">
+                      {replayStartInput.toLocaleString()} / {(chartData?.length || 0).toLocaleString()}
                     </span>
                     <button
-                      onClick={() => handleJumpAbs(absoluteIndex + 10)}
-                      className="p-1 hover:text-white text-slate-400 transition-all"
-                      title="+10 Velas"
+                      onClick={handleEnterReplay}
+                      className="md:ml-2 px-3 md:px-4 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-[10px] md:text-[11px] font-bold rounded-lg transition-all whitespace-nowrap flex-shrink-0"
                     >
-                      <ArrowBigRightDash size={16} />
+                      GO
                     </button>
-                  </div>
+                  </>
+                )}
+              </div>
+            )}
 
-                  <input
-                    type="range"
-                    min="0"
-                    max={totalCandles - 1}
-                    value={absoluteIndex}
-                    onChange={(e) => handleJumpAbs(parseInt(e.target.value))}
-                    className="timeline-slider"
-                  />
-
+            {replayActive && (
+              <div className="replay-start-bar flex-wrap">
+                <div className="flex items-center gap-1 md:gap-2 pr-2 md:pr-4 border-r border-white/10 flex-shrink-0">
                   <button
-                    onClick={handleExitReplay}
-                    className="text-[10px] font-bold text-rose-400 hover:text-rose-300 transition-all underline decoration-rose-500/30 whitespace-nowrap"
+                    onClick={() => handleJumpAbs(absoluteIndex - 10)}
+                    className="p-1 hover:text-white text-slate-400 transition-all"
+                    title="-10 Velas"
                   >
-                    SALIR REPLAY
+                    <ArrowBigLeftDash size={16} />
+                  </button>
+                  <span className="text-[10px] font-mono text-slate-300 min-w-[70px] md:min-w-[90px] text-center">
+                    {absoluteIndex.toLocaleString()} / {totalCandles.toLocaleString()}
+                  </span>
+                  <button
+                    onClick={() => handleJumpAbs(absoluteIndex + 10)}
+                    className="p-1 hover:text-white text-slate-400 transition-all"
+                    title="+10 Velas"
+                  >
+                    <ArrowBigRightDash size={16} />
                   </button>
                 </div>
-              )}
-            </div>
+
+                <input
+                  type="range"
+                  min="0"
+                  max={totalCandles - 1}
+                  value={absoluteIndex}
+                  onChange={(e) => handleJumpAbs(parseInt(e.target.value))}
+                  className="timeline-slider flex-1 min-w-[150px]"
+                />
+
+                <button
+                  onClick={handleExitReplay}
+                  className="text-[10px] font-bold text-rose-400 hover:text-rose-300 transition-all underline decoration-rose-500/30 whitespace-nowrap flex-shrink-0"
+                >
+                  SALIR
+                </button>
+              </div>
+            )}
 
             {replayActive && (
               <ExecutionPanel
@@ -698,7 +616,7 @@ function App() {
         </div>
       </main>
 
-      <SettingsModal 
+      <SettingsModal
         isOpen={isSettingsOpen}
         onClose={() => setIsSettingsOpen(false)}
         initialBalance={accountBalance}
@@ -708,4 +626,4 @@ function App() {
   );
 }
 
-export default App;
+export default Dashboard;

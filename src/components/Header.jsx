@@ -88,7 +88,7 @@ const Header = ({
         </div>
       </div>
 
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2 flex-wrap justify-end">
         {replayActive ? (
           <>
             <div className="flex items-center bg-white/5 rounded-lg border border-white/5 p-1 mr-1">
@@ -122,7 +122,7 @@ const Header = ({
               title="Reproducir/Pausar (Espacio)"
             >
               {isPlaying ? <Pause size={18} /> : <Play size={18} />}
-              {isPlaying ? 'Pausar' : 'Play'}
+              <span className="hidden sm:inline">{isPlaying ? 'Pausar' : 'Play'}</span>
             </button>
 
             <button onClick={onExitReplay} className="btn-icon hover:bg-rose-500/20! hover:text-rose-400! hover:border-rose-500/30!" title="Salir del Replay (Esc)">
@@ -141,7 +141,7 @@ const Header = ({
             title="Activar Replay"
           >
             {isLoading ? <Loader2 size={18} className="animate-spin" /> : <Rewind size={18} />}
-            Iniciar Replay
+            <span className="hidden sm:inline">Iniciar Replay</span>
           </button>
         )}
       </div>
