@@ -2,9 +2,9 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useChart } from '../contexts/ChartContext';
 import { useAuth } from '../contexts/AuthContext';
 import {
-  Minus, MousePointer2, TrendingUp, RectangleHorizontal,
-  GitBranch, Undo2, Trash2, Loader2, Rewind,
-  ArrowBigLeftDash, ArrowBigRightDash, AlertTriangle, Clock,
+  Minus, MousePointer2, RectangleHorizontal,
+  GitBranch, Undo2, Trash2, Loader2, Rewind, Spline,
+  ArrowBigLeftDash, ArrowBigRightDash, AlertTriangle, Clock, Plus, Magnet, ArrowLeftRight,
 } from 'lucide-react';
 import TradingChart from '../components/TradingChart';
 import Sidebar from '../components/Sidebar';
@@ -16,16 +16,18 @@ import FiboSettings from '../components/FiboSettings';
 import SessionsSettings from '../components/SessionsSettings';
 import { useBacktest } from '../hooks/useBacktest';
 import SettingsModal from '../components/SettingsModal';
+import DrawingStyleModal from '../components/DrawingStyleModal';
+import TrendlineControlButton from '../components/TrendlineControlButton';
 import { useSymbolState } from '../hooks/useSymbolState';
 import { useRiskManager } from '../hooks/useRiskManager';
 import { useDrawingState } from '../hooks/useDrawingState';
 import { useReplayControls } from '../hooks/useReplayControls';
 
 const SYMBOLS = [
-  { id: 'eurusd', label: 'EUR/USD', decimals: 5, pipMult: 10000, minMove: 0.00001, pipValue: 10, defaultSL: 0.00300, defaultTP: 0.00600 },
-  { id: 'usdjpy', label: 'USD/JPY', decimals: 3, pipMult: 100,   minMove: 0.001,   pipValue: 7,  defaultSL: 0.300,   defaultTP: 0.600 },
+  { id: 'eurusd', label: 'EUR/USD', decimals: 5, pipMult: 10000, minMove: 0.00001, pipValue: 10, defaultSL: 0.003, defaultTP: 0.006 },
+  { id: 'usdjpy', label: 'USD/JPY', decimals: 3, pipMult: 100,   minMove: 0.001,   pipValue: 7,  defaultSL: 0.3,   defaultTP: 0.6 },
   { id: 'us100',  label: 'US100',   decimals: 2, pipMult: 1,     minMove: 0.01,    pipValue: 1,  defaultSL: 50,      defaultTP: 100 },
-  { id: 'xauusd', label: 'XAU/USD', decimals: 2, pipMult: 10,    minMove: 0.01,    pipValue: 10, defaultSL: 3.00,    defaultTP: 6.00 },
+  { id: 'xauusd', label: 'XAU/USD', decimals: 2, pipMult: 10,    minMove: 0.01,    pipValue: 10, defaultSL: 3,       defaultTP: 6 },
 ];
 
 const TF_SL_SCALE = {
@@ -91,10 +93,12 @@ function Dashboard() {
   const {
     drawingMode,
     setDrawingMode,
+    crosshairMode,
+    setCrosshairMode,
+    crosshairVisible,
+    setCrosshairVisible,
     fiboLevels,
     setFiboLevels,
-    showFiboSettings,
-    setShowFiboSettings,
     showSessions,
     setShowSessions,
     sessionsConfig,
@@ -106,7 +110,22 @@ function Dashboard() {
   const [slPrice, setSlPrice] = useState('');
   const [tpPrice, setTpPrice] = useState('');
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [selectedCurveStyle, setSelectedCurveStyle] = useState(null);
+  const [curveModalAnchor, setCurveModalAnchor] = useState(null);
+  const [curveModalPosition, setCurveModalPosition] = useState(null);
+  const [selectedFiboSettings, setSelectedFiboSettings] = useState(null);
+  const [fiboModalAnchor, setFiboModalAnchor] = useState(null);
+  const [fiboModalPosition, setFiboModalPosition] = useState(null);
+  const [controlsOrientation, setControlsOrientation] = useState('vertical');
+  const [controlsPosition, setControlsPosition] = useState({ x: 12, y: 12 });
   const chartComponentRef = useRef(null);
+  const chartOverlayRef = useRef(null);
+  const chartCardRef = useRef(null);
+  const controlsRef = useRef(null);
+  const dragModalRef = useRef({ active: false, offsetX: 0, offsetY: 0 });
+  const dragFiboModalRef = useRef({ active: false, offsetX: 0, offsetY: 0 });
+  const dragControlsRef = useRef({ active: false, offsetX: 0, offsetY: 0 });
+  const selectedDrawingIdRef = useRef(null);
 
   useEffect(() => {
     loadSymbol(selectedSymbol, selectedTF);
@@ -148,13 +167,13 @@ function Dashboard() {
     selectingStart,
   });
 
-  const absoluteIndex = loadedRange?.startCandle != null ? loadedRange.startCandle + currentIndex : currentIndex;
+  const absoluteIndex = loadedRange?.startCandle == null ? currentIndex : loadedRange.startCandle + currentIndex;
 
   useEffect(() => {
     if (pendingReplayIndexRef.current !== null && !isLoading && !isLoadingMore && chartData?.length > 0) {
       const targetAbsIndex = pendingReplayIndexRef.current;
       pendingReplayIndexRef.current = null;
-      const targetLocal = loadedRange?.startCandle != null ? targetAbsIndex - loadedRange.startCandle : targetAbsIndex;
+      const targetLocal = loadedRange?.startCandle == null ? targetAbsIndex : targetAbsIndex - loadedRange.startCandle;
       jumpTo(targetLocal);
     }
   }, [chartData, isLoading, isLoadingMore, loadedRange, jumpTo, pendingReplayIndexRef]);
@@ -162,7 +181,7 @@ function Dashboard() {
   const handleJumpAbs = useCallback(async (targetAbsIndex) => {
     if (!meta || targetAbsIndex < 0 || targetAbsIndex >= meta.totalCandles) return;
 
-    const targetLocal = loadedRange?.startCandle != null ? targetAbsIndex - loadedRange.startCandle : targetAbsIndex;
+    const targetLocal = loadedRange?.startCandle == null ? targetAbsIndex : targetAbsIndex - loadedRange.startCandle;
 
     if (targetLocal < 0 || targetLocal >= (chartData?.length || 0)) {
        pausePlaying();
@@ -179,24 +198,12 @@ function Dashboard() {
     }
   }, [meta, loadedRange, chartData, pausePlaying, loadChunksForRange, jumpTo, pendingReplayIndexRef]);
 
-  useEffect(() => {
-    setSlPrice('');
-    setTpPrice('');
-  }, [selectedSymbol, selectedTF]);
-
-  useEffect(() => {
-    if (!activePosition) {
-      setSlPrice('');
-      setTpPrice('');
-    }
-  }, [activePosition]);
-
   const currentBalance = accountBalance + (metrics?.profit || 0);
 
   const getScaledSLTP = () => {
     const scale = TF_SL_SCALE[selectedTF] ?? 1;
-    const slDist = (symbolInfo?.defaultSL ?? 0.00300) * scale;
-    const tpDist = (symbolInfo?.defaultTP ?? 0.00600) * scale;
+    const slDist = (symbolInfo?.defaultSL ?? 0.003) * scale;
+    const tpDist = (symbolInfo?.defaultTP ?? 0.006) * scale;
     return { slDist, tpDist };
   };
 
@@ -209,8 +216,8 @@ function Dashboard() {
 
     const userSL = parsePrice(slPrice);
     const userTP = parsePrice(tpPrice);
-    const sl = (userSL != null && userSL < entry) ? userSL : parseFloat((entry - slDist).toFixed(dec));
-    const tp = (userTP != null && userTP > entry) ? userTP : parseFloat((entry + tpDist).toFixed(dec));
+    const sl = (userSL != null && userSL < entry) ? userSL : Number.parseFloat((entry - slDist).toFixed(dec));
+    const tp = (userTP != null && userTP > entry) ? userTP : Number.parseFloat((entry + tpDist).toFixed(dec));
     setSlPrice(sl.toFixed(dec));
     setTpPrice(tp.toFixed(dec));
 
@@ -231,8 +238,8 @@ function Dashboard() {
 
     const userSL = parsePrice(slPrice);
     const userTP = parsePrice(tpPrice);
-    const sl = (userSL != null && userSL > entry) ? userSL : parseFloat((entry + slDist).toFixed(dec));
-    const tp = (userTP != null && userTP < entry) ? userTP : parseFloat((entry - tpDist).toFixed(dec));
+    const sl = (userSL != null && userSL > entry) ? userSL : Number.parseFloat((entry + slDist).toFixed(dec));
+    const tp = (userTP != null && userTP < entry) ? userTP : Number.parseFloat((entry - tpDist).toFixed(dec));
     setSlPrice(sl.toFixed(dec));
     setTpPrice(tp.toFixed(dec));
 
@@ -260,8 +267,274 @@ function Dashboard() {
       }
       if (isPlaying) pausePlaying();
     }
+    setSlPrice('');
+    setTpPrice('');
     setSelectedTF(tf);
   }, [selectedTF, replayActive, chartData, currentIndex, isPlaying, pausePlaying, setSelectedTF, pendingReplayTimeRef]);
+
+  const handleSymbolChange = useCallback((symbol) => {
+    setSlPrice('');
+    setTpPrice('');
+    setSelectedSymbol(symbol);
+  }, [setSelectedSymbol]);
+
+  const handleClosePosition = useCallback(() => {
+    closePosition();
+    setSlPrice('');
+    setTpPrice('');
+  }, [closePosition]);
+
+  const handleSelectionChange = useCallback((selection) => {
+    if (!selection) {
+      setSelectedCurveStyle(null);
+      setCurveModalAnchor(null);
+      setSelectedFiboSettings(null);
+      setFiboModalAnchor(null);
+      selectedDrawingIdRef.current = null;
+      return;
+    }
+    selectedDrawingIdRef.current = selection.id ?? null;
+    if (selection.type === 'fibonacci') {
+      setSelectedCurveStyle(null);
+      setCurveModalAnchor(null);
+      setSelectedFiboSettings({
+        id: selection.id ?? null,
+        levels: Array.isArray(selection.levels) && selection.levels.length > 0 ? selection.levels : fiboLevels,
+      });
+      setFiboModalAnchor(selection.anchor || null);
+      if (selection.anchor && fiboModalPosition == null) {
+        setFiboModalPosition({
+          x: Math.max(12, selection.anchor.x + 12),
+          y: Math.max(12, selection.anchor.y - 12),
+        });
+      }
+      return;
+    }
+    if (selection.type !== 'curve' && selection.type !== 'horizontal' && selection.type !== 'trendline' && selection.type !== 'rectangle') {
+      setSelectedCurveStyle(null);
+      setCurveModalAnchor(null);
+      setSelectedFiboSettings(null);
+      setFiboModalAnchor(null);
+      selectedDrawingIdRef.current = null;
+      return;
+    }
+    setSelectedFiboSettings(null);
+    setFiboModalAnchor(null);
+    setSelectedCurveStyle({
+      id: selection.id ?? null,
+      type: selection.type,
+      color: selection.color || (
+        selection.type === 'horizontal'
+          ? '#8b5cf6'
+          : selection.type === 'rectangle'
+            ? '#f59e0b'
+            : '#a855f7'
+      ),
+      lineStyle: selection.lineStyle || 'solid',
+      lineWidth: selection.lineWidth || 2,
+      text: selection.text || (selection.type === 'horizontal' ? 'S/R' : ''),
+      textPosition: selection.textPosition || 'above',
+      textSize: selection.textSize || 11,
+    });
+    setCurveModalAnchor(selection.anchor || null);
+    if (selection.anchor && curveModalPosition == null) {
+      setCurveModalPosition({
+        x: Math.max(12, selection.anchor.x + 12),
+        y: Math.max(12, selection.anchor.y - 12),
+      });
+    }
+  }, [curveModalPosition, fiboLevels, fiboModalPosition]);
+
+  const updateSelectedCurveStyle = useCallback((patch) => {
+    setSelectedCurveStyle((prev) => (prev ? { ...prev, ...patch } : prev));
+    chartComponentRef.current?.updateSelectedCurveStyle({
+      ...patch,
+      id: selectedDrawingIdRef.current,
+    });
+  }, []);
+
+  const updateSelectedFibonacciLevels = useCallback((levels) => {
+    setSelectedFiboSettings((prev) => (prev ? { ...prev, levels } : prev));
+    setFiboLevels(levels);
+    chartComponentRef.current?.updateSelectedFibonacciLevels(levels);
+  }, [setFiboLevels]);
+
+  const handleModalPointerDown = useCallback((e) => {
+    const target = e.target;
+    if (!(target instanceof HTMLElement)) return;
+    if (target.closest('button, input, select, textarea')) return;
+    const modal = target.closest('[data-curve-modal="true"]');
+    if (!(modal instanceof HTMLElement)) return;
+    const overlay = chartOverlayRef.current;
+    if (!(overlay instanceof HTMLElement)) return;
+    const rect = modal.getBoundingClientRect();
+    dragModalRef.current = {
+      active: true,
+      offsetX: e.clientX - rect.left,
+      offsetY: e.clientY - rect.top,
+    };
+    try { modal.setPointerCapture?.(e.pointerId); } catch { /* ignore unsupported browsers */ }
+    e.preventDefault();
+  }, []);
+
+  const handleModalPointerMove = useCallback((e) => {
+    if (!dragModalRef.current.active) return;
+    const overlay = chartOverlayRef.current;
+    if (!(overlay instanceof HTMLElement)) return;
+    const overlayRect = overlay.getBoundingClientRect();
+    setCurveModalPosition({
+      x: Math.max(8, e.clientX - overlayRect.left - dragModalRef.current.offsetX),
+      y: Math.max(8, e.clientY - overlayRect.top - dragModalRef.current.offsetY),
+    });
+  }, []);
+
+  const handleModalPointerUp = useCallback(() => {
+    dragModalRef.current.active = false;
+  }, []);
+
+  const handleFiboModalPointerDown = useCallback((e) => {
+    const target = e.target;
+    if (!(target instanceof HTMLElement)) return;
+    if (target.closest('button, input, select, textarea')) return;
+    const modal = target.closest('[data-fibo-modal="true"]');
+    if (!(modal instanceof HTMLElement)) return;
+    const overlay = chartOverlayRef.current;
+    if (!(overlay instanceof HTMLElement)) return;
+    const rect = modal.getBoundingClientRect();
+    dragFiboModalRef.current = {
+      active: true,
+      offsetX: e.clientX - rect.left,
+      offsetY: e.clientY - rect.top,
+    };
+    try { modal.setPointerCapture?.(e.pointerId); } catch { /* ignore unsupported browsers */ }
+    e.preventDefault();
+  }, []);
+
+  const handleFiboModalPointerMove = useCallback((e) => {
+    if (!dragFiboModalRef.current.active) return;
+    const overlay = chartOverlayRef.current;
+    if (!(overlay instanceof HTMLElement)) return;
+    const overlayRect = overlay.getBoundingClientRect();
+    setFiboModalPosition({
+      x: Math.max(8, e.clientX - overlayRect.left - dragFiboModalRef.current.offsetX),
+      y: Math.max(8, e.clientY - overlayRect.top - dragFiboModalRef.current.offsetY),
+    });
+  }, []);
+
+  const handleFiboModalPointerUp = useCallback(() => {
+    dragFiboModalRef.current.active = false;
+  }, []);
+
+  const handleControlsPointerDown = useCallback((e) => {
+    const target = e.target;
+    if (!(target instanceof HTMLElement)) return;
+    if (target.closest('button, input, select, textarea')) return;
+    const controls = controlsRef.current;
+    if (!(controls instanceof HTMLElement)) return;
+    const rect = controls.getBoundingClientRect();
+    dragControlsRef.current = {
+      active: true,
+      offsetX: e.clientX - rect.left,
+      offsetY: e.clientY - rect.top,
+    };
+    try { controls.setPointerCapture?.(e.pointerId); } catch { /* ignore unsupported browsers */ }
+    e.preventDefault();
+  }, []);
+
+  const handleControlsPointerMove = useCallback((e) => {
+    if (!dragControlsRef.current.active) return;
+    const chartCard = chartCardRef.current;
+    const controls = controlsRef.current;
+    if (!(chartCard instanceof HTMLElement) || !(controls instanceof HTMLElement)) return;
+    const cardRect = chartCard.getBoundingClientRect();
+    const controlsRect = controls.getBoundingClientRect();
+    const edgePadding = 8;
+    const rightScaleSafeArea = 56;
+    const bottomScaleSafeArea = 42;
+    const usableWidth = Math.max(1, cardRect.width - rightScaleSafeArea);
+    const usableHeight = Math.max(1, cardRect.height - bottomScaleSafeArea);
+    const nextX = e.clientX - cardRect.left - dragControlsRef.current.offsetX;
+    const nextY = e.clientY - cardRect.top - dragControlsRef.current.offsetY;
+    const minX = edgePadding;
+    const minY = edgePadding;
+    const maxX = Math.max(minX, usableWidth - controlsRect.width - edgePadding);
+    const maxY = Math.max(minY, usableHeight - controlsRect.height - edgePadding);
+
+    if (controlsOrientation === 'horizontal') {
+      const overflowsHorizontally = controlsRect.width > usableWidth || nextX > maxX;
+      if (overflowsHorizontally) {
+        setControlsOrientation('vertical');
+        setControlsPosition({
+          x: Math.min(maxX, Math.max(minX, nextX)),
+          y: maxY,
+        });
+        return;
+      }
+    }
+
+    setControlsPosition({
+      x: Math.min(maxX, Math.max(minX, nextX)),
+      y: Math.min(maxY, Math.max(minY, nextY)),
+    });
+  }, [controlsOrientation]);
+
+  const handleControlsPointerUp = useCallback(() => {
+    dragControlsRef.current.active = false;
+  }, []);
+
+  useEffect(() => {
+    const handleWindowPointerMove = (e) => {
+      handleModalPointerMove(e);
+      handleFiboModalPointerMove(e);
+      handleControlsPointerMove(e);
+    };
+    const handleWindowPointerUp = () => {
+      handleModalPointerUp();
+      handleFiboModalPointerUp();
+      handleControlsPointerUp();
+    };
+    globalThis.addEventListener('pointermove', handleWindowPointerMove);
+    globalThis.addEventListener('pointerup', handleWindowPointerUp);
+    globalThis.addEventListener('pointercancel', handleWindowPointerUp);
+    return () => {
+      globalThis.removeEventListener('pointermove', handleWindowPointerMove);
+      globalThis.removeEventListener('pointerup', handleWindowPointerUp);
+      globalThis.removeEventListener('pointercancel', handleWindowPointerUp);
+    };
+  }, [
+    handleControlsPointerMove,
+    handleControlsPointerUp,
+    handleFiboModalPointerMove,
+    handleFiboModalPointerUp,
+    handleModalPointerMove,
+    handleModalPointerUp,
+  ]);
+
+  useEffect(() => {
+    const clampControlsInsideChart = () => {
+      const chartCard = chartCardRef.current;
+      const controls = controlsRef.current;
+      if (!(chartCard instanceof HTMLElement) || !(controls instanceof HTMLElement)) return;
+      const edgePadding = 8;
+      const rightScaleSafeArea = 56;
+      const bottomScaleSafeArea = 42;
+      const usableWidth = Math.max(1, chartCard.clientWidth - rightScaleSafeArea);
+      const usableHeight = Math.max(1, chartCard.clientHeight - bottomScaleSafeArea);
+      const maxX = Math.max(edgePadding, usableWidth - controls.offsetWidth - edgePadding);
+      const maxY = Math.max(edgePadding, usableHeight - controls.offsetHeight - edgePadding);
+      setControlsPosition((prev) => ({
+        x: Math.min(maxX, Math.max(edgePadding, prev.x)),
+        y: Math.min(maxY, Math.max(edgePadding, prev.y)),
+      }));
+    };
+
+    const rafId = requestAnimationFrame(clampControlsInsideChart);
+    globalThis.addEventListener('resize', clampControlsInsideChart);
+    return () => {
+      cancelAnimationFrame(rafId);
+      globalThis.removeEventListener('resize', clampControlsInsideChart);
+    };
+  }, [controlsOrientation]);
 
   useEffect(() => {
     if (!pendingReplayTimeRef.current || isLoading || isLoadingMore) return;
@@ -334,7 +607,7 @@ function Dashboard() {
         <Header
           selectedSymbol={selectedSymbol}
           selectedTF={selectedTF}
-          onSymbolChange={setSelectedSymbol}
+          onSymbolChange={handleSymbolChange}
           onTFChange={replayActive ? handleTFChange : setSelectedTF}
           totalCandles={totalCandles}
           currentIndex={absoluteIndex}
@@ -358,14 +631,52 @@ function Dashboard() {
         <div className="dashboard-grid glass-blur">
           {/* Chart Section */}
           <section className="chart-section">
-            <div className="chart-card animate">
-              <div className="chart-controls">
+            <div className="chart-card animate" ref={chartCardRef}>
+              <div
+                ref={controlsRef}
+                className={`chart-controls ${controlsOrientation === 'horizontal' ? 'is-horizontal' : ''}`}
+                style={{ left: `${controlsPosition.x}px`, top: `${controlsPosition.y}px` }}
+                onPointerDown={handleControlsPointerDown}
+                onPointerUp={handleControlsPointerUp}
+                onPointerCancel={handleControlsPointerUp}
+              >
                 <button
-                  onClick={() => setDrawingMode(null)}
-                  className={`control-btn ${!drawingMode ? 'active' : ''}`}
-                  title="Puntero"
+                  onClick={() => setControlsOrientation((prev) => (prev === 'vertical' ? 'horizontal' : 'vertical'))}
+                  className={`control-btn ${controlsOrientation === 'horizontal' ? 'active' : ''}`}
+                  title="Alternar menú horizontal/vertical"
+                >
+                  <ArrowLeftRight size={16} />
+                </button>
+                <div className="controls-divider" />
+                <button
+                  onClick={() => {
+                    setDrawingMode(null);
+                    setCrosshairVisible(false);
+                  }}
+                  className={`control-btn ${drawingMode === null && !crosshairVisible ? 'active' : ''}`}
+                  title="Puntero (sin cruz)"
                 >
                   <MousePointer2 size={18} />
+                </button>
+                <button
+                  onClick={() => {
+                    setDrawingMode(null);
+                    setCrosshairVisible(true);
+                  }}
+                  className={`control-btn ${drawingMode === null && crosshairVisible ? 'active' : ''}`}
+                  title="Cruz libre"
+                >
+                  <Plus size={16} />
+                </button>
+                <button
+                  onClick={() => {
+                    setDrawingMode(null);
+                    setCrosshairMode(crosshairMode === 1 ? 0 : 1);
+                  }}
+                  className={`control-btn ${crosshairMode === 1 ? 'active' : ''}`}
+                  title="Snap"
+                >
+                  <Magnet size={16} />
                 </button>
                 <div className="controls-divider" />
                 <button
@@ -375,13 +686,10 @@ function Dashboard() {
                 >
                   <Minus size={18} />
                 </button>
-                <button
-                  onClick={() => setDrawingMode(drawingMode === 'trendline' ? null : 'trendline')}
-                  className={`control-btn ${drawingMode === 'trendline' ? 'active' : ''}`}
-                  title="Línea de tendencia"
-                >
-                  <TrendingUp size={18} />
-                </button>
+                <TrendlineControlButton
+                  drawingMode={drawingMode}
+                  onToggle={() => setDrawingMode(drawingMode === 'trendline' ? null : 'trendline')}
+                />
                 <button
                   onClick={() => setDrawingMode(drawingMode === 'rectangle' ? null : 'rectangle')}
                   className={`control-btn ${drawingMode === 'rectangle' ? 'active' : ''}`}
@@ -389,24 +697,21 @@ function Dashboard() {
                 >
                   <RectangleHorizontal size={18} />
                 </button>
+                <button
+                  onClick={() => setDrawingMode(drawingMode === 'curve' ? null : 'curve')}
+                  className={`control-btn ${drawingMode === 'curve' ? 'active' : ''}`}
+                  title="Curva (3 clics: inicio, final, punto medio)"
+                >
+                  <Spline size={18} />
+                </button>
                 <div style={{ position: 'relative' }}>
                   <button
                     onClick={() => setDrawingMode(drawingMode === 'fibonacci' ? null : 'fibonacci')}
-                    onDoubleClick={() => setShowFiboSettings(v => !v)}
                     className={`control-btn ${drawingMode === 'fibonacci' ? 'active' : ''}`}
-                    title="Clic: Fibonacci | Doble Clic: Configurar"
+                    title="Fibonacci"
                   >
                     <GitBranch size={18} />
                   </button>
-                  {showFiboSettings && (
-                    <div style={{ position: 'absolute', left: '100%', top: 0, marginLeft: '8px', zIndex: 1000 }}>
-                      <FiboSettings
-                        levels={fiboLevels}
-                        onChange={setFiboLevels}
-                        onClose={() => setShowFiboSettings(false)}
-                      />
-                    </div>
-                  )}
                 </div>
                 <div style={{ position: 'relative' }}>
                   <button
@@ -444,7 +749,7 @@ function Dashboard() {
                 </button>
               </div>
 
-              <div id="chart-container" className="w-full h-full" style={{ position: 'relative' }}>
+              <div id="chart-container" ref={chartOverlayRef} className="w-full h-full" style={{ position: 'relative' }}>
                 {isLoading && (
                   <div className="chart-loading-overlay">
                     <Loader2 size={32} className="animate-spin text-blue-500" />
@@ -462,12 +767,54 @@ function Dashboard() {
                   </div>
                 )}
 
+                <DrawingStyleModal
+                  selectedStyle={selectedCurveStyle}
+                  modalPosition={curveModalPosition}
+                  modalAnchor={curveModalAnchor}
+                  onPointerDown={handleModalPointerDown}
+                  onPointerMove={handleModalPointerMove}
+                  onPointerUp={handleModalPointerUp}
+                  onClose={() => {
+                    setSelectedCurveStyle(null);
+                    setCurveModalAnchor(null);
+                    chartComponentRef.current?.clearSelection();
+                  }}
+                  onChangeStyle={updateSelectedCurveStyle}
+                />
+                {selectedFiboSettings && (
+                  <div
+                    data-fibo-modal="true"
+                    style={{
+                      position: 'absolute',
+                      left: `${typeof fiboModalPosition?.x === 'number' ? fiboModalPosition.x : Math.max(12, (fiboModalAnchor?.x ?? 0) + 12)}px`,
+                      top: `${typeof fiboModalPosition?.y === 'number' ? fiboModalPosition.y : Math.max(12, (fiboModalAnchor?.y ?? 0) - 12)}px`,
+                      zIndex: 20,
+                    }}
+                    onPointerDown={handleFiboModalPointerDown}
+                    onPointerMove={handleFiboModalPointerMove}
+                    onPointerUp={handleFiboModalPointerUp}
+                    onPointerCancel={handleFiboModalPointerUp}
+                  >
+                    <FiboSettings
+                      key={selectedFiboSettings.id ?? 'fibo-selected'}
+                      levels={selectedFiboSettings.levels}
+                      onChange={updateSelectedFibonacciLevels}
+                      onClose={() => {
+                        setSelectedFiboSettings(null);
+                        setFiboModalAnchor(null);
+                        chartComponentRef.current?.clearSelection();
+                      }}
+                    />
+                  </div>
+                )}
+
                 <TradingChart
                   ref={chartComponentRef}
                   data={visibleData}
                   drawingMode={drawingMode}
+                  onDrawingComplete={() => setDrawingMode(null)}
                   activePosition={activePosition}
-                  onNeedMoreData={!replayActive ? handleNeedMoreData : undefined}
+                  onNeedMoreData={replayActive ? undefined : handleNeedMoreData}
                   focusIndex={selectingStart && !replayActive ? replayStartInput : null}
                   priceDecimals={symbolInfo?.decimals || 5}
                   minMove={symbolInfo?.minMove || 0.00001}
@@ -479,6 +826,9 @@ function Dashboard() {
                   pipValue={symbolInfo?.pipValue || 10}
                   showSessions={showSessions}
                   sessionsConfig={sessionsConfig}
+                  crosshairMode={crosshairMode}
+                  crosshairVisible={crosshairVisible}
+                  onSelectionChange={handleSelectionChange}
                 />
               </div>
 
@@ -499,7 +849,7 @@ function Dashboard() {
                   </>
                 ) : (
                   <>
-                    <div className="flex items-center gap-2 md:mr-4 flex-shrink-0">
+                    <div className="flex items-center gap-2 md:mr-4 shrink-0">
                       <Rewind size={14} className="text-blue-400 hidden sm:block" />
                       <span className="text-[10px] md:text-[11px] font-semibold text-slate-300 whitespace-nowrap">Punto de inicio:</span>
                     </div>
@@ -508,15 +858,15 @@ function Dashboard() {
                       min="0"
                       max={Math.max((chartData?.length || 1) - 1, 0)}
                       value={Math.min(replayStartInput, (chartData?.length || 1) - 1)}
-                      onChange={(e) => setReplayStartInput(parseInt(e.target.value))}
+                      onChange={(e) => setReplayStartInput(Number.parseInt(e.target.value, 10))}
                       className="timeline-slider flex-1 min-w-[150px]"
                     />
-                    <span className="text-[10px] font-mono text-slate-400 min-w-[70px] md:min-w-[90px] text-center flex-shrink-0">
+                    <span className="text-[10px] font-mono text-slate-400 min-w-[70px] md:min-w-[90px] text-center shrink-0">
                       {replayStartInput.toLocaleString()} / {(chartData?.length || 0).toLocaleString()}
                     </span>
                     <button
                       onClick={handleEnterReplay}
-                      className="md:ml-2 px-3 md:px-4 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-[10px] md:text-[11px] font-bold rounded-lg transition-all whitespace-nowrap flex-shrink-0"
+                      className="md:ml-2 px-3 md:px-4 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-[10px] md:text-[11px] font-bold rounded-lg transition-all whitespace-nowrap shrink-0"
                     >
                       GO
                     </button>
@@ -527,7 +877,7 @@ function Dashboard() {
 
             {replayActive && (
               <div className="replay-start-bar flex-wrap">
-                <div className="flex items-center gap-1 md:gap-2 pr-2 md:pr-4 border-r border-white/10 flex-shrink-0">
+                <div className="flex items-center gap-1 md:gap-2 pr-2 md:pr-4 border-r border-white/10 shrink-0">
                   <button
                     onClick={() => handleJumpAbs(absoluteIndex - 10)}
                     className="p-1 hover:text-white text-slate-400 transition-all"
@@ -552,13 +902,13 @@ function Dashboard() {
                   min="0"
                   max={totalCandles - 1}
                   value={absoluteIndex}
-                  onChange={(e) => handleJumpAbs(parseInt(e.target.value))}
+                  onChange={(e) => handleJumpAbs(Number.parseInt(e.target.value, 10))}
                   className="timeline-slider flex-1 min-w-[150px]"
                 />
 
                 <button
                   onClick={handleExitReplay}
-                  className="text-[10px] font-bold text-rose-400 hover:text-rose-300 transition-all underline decoration-rose-500/30 whitespace-nowrap flex-shrink-0"
+                  className="text-[10px] font-bold text-rose-400 hover:text-rose-300 transition-all underline decoration-rose-500/30 whitespace-nowrap shrink-0"
                 >
                   SALIR
                 </button>
@@ -573,11 +923,11 @@ function Dashboard() {
                 tpPrice={tpPrice}
                 onLotInputChange={handleLotInputChange}
                 onLotInputBlur={handleLotInputBlur}
-                onSlChange={(e) => setSlPrice(e.target.value.replace(/[^0-9.,]/g, ''))}
-                onTpChange={(e) => setTpPrice(e.target.value.replace(/[^0-9.,]/g, ''))}
+                onSlChange={(e) => setSlPrice(e.target.value.replaceAll(/[^0-9.,]/g, ''))}
+                onTpChange={(e) => setTpPrice(e.target.value.replaceAll(/[^0-9.,]/g, ''))}
                 onBuy={handleBuy}
                 onSell={handleSell}
-                onClose={closePosition}
+                onClose={handleClosePosition}
                 metrics={metrics}
                 decimals={symbolInfo?.decimals || 5}
                 riskMode={riskMode}
