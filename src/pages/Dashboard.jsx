@@ -5,6 +5,7 @@ import {
   Minus, MousePointer2, RectangleHorizontal,
   GitBranch, Undo2, Trash2, Loader2, Rewind, Spline,
   ArrowBigLeftDash, ArrowBigRightDash, AlertTriangle, Clock, Plus, Magnet, ArrowLeftRight,
+  TrendingUp, TrendingDown,
 } from 'lucide-react';
 import TradingChart from '../components/TradingChart';
 import Sidebar from '../components/Sidebar';
@@ -14,6 +15,8 @@ import TradeHistory from '../components/TradeHistory';
 import MetricsSummary from '../components/MetricsSummary';
 import FiboSettings from '../components/FiboSettings';
 import SessionsSettings from '../components/SessionsSettings';
+import MovingAverageSettings from '../components/MovingAverageSettings';
+import RSISettings from '../components/RSISettings';
 import { useBacktest } from '../hooks/useBacktest';
 import SettingsModal from '../components/SettingsModal';
 import DrawingStyleModal from '../components/DrawingStyleModal';
@@ -105,6 +108,16 @@ function Dashboard() {
     setSessionsConfig,
     showSessionsSettings,
     setShowSessionsSettings,
+    maConfig,
+    setMAConfig,
+    showMASettings,
+    setShowMASettings,
+    rsiConfig,
+    setRSIConfig,
+    showRSISettings,
+    setShowRSISettings,
+    rsiVisible,
+    setRSIVisible,
   } = useDrawingState();
 
   const [slPrice, setSlPrice] = useState('');
@@ -116,6 +129,8 @@ function Dashboard() {
   const [selectedFiboSettings, setSelectedFiboSettings] = useState(null);
   const [fiboModalAnchor, setFiboModalAnchor] = useState(null);
   const [fiboModalPosition, setFiboModalPosition] = useState(null);
+  const [maModalAnchor, setMaModalAnchor] = useState(null);
+  const [maModalPosition, setMaModalPosition] = useState(null);
   const [controlsOrientation, setControlsOrientation] = useState('vertical');
   const [controlsPosition, setControlsPosition] = useState({ x: 12, y: 12 });
   const chartComponentRef = useRef(null);
@@ -732,6 +747,44 @@ function Dashboard() {
                     </div>
                   )}
                 </div>
+                <div style={{ position: 'relative' }}>
+                  <button
+                    onClick={() => setShowMASettings(v => !v)}
+                    onDoubleClick={() => setShowMASettings(true)}
+                    className={`control-btn ${showMASettings ? 'active' : ''}`}
+                    title="Clic: Medias Móviles (Alternar) | Doble Clic: Configurar"
+                  >
+                    <TrendingUp size={16} />
+                  </button>
+                  {showMASettings && (
+                    <div style={{ position: 'absolute', left: '100%', top: 0, marginLeft: '8px', zIndex: 1000 }}>
+                      <MovingAverageSettings
+                        config={maConfig}
+                        onChange={setMAConfig}
+                        onClose={() => setShowMASettings(false)}
+                      />
+                    </div>
+                  )}
+                </div>
+                <div style={{ position: 'relative' }}>
+                  <button
+                    onClick={() => setShowRSISettings(v => !v)}
+                    onDoubleClick={() => setShowRSISettings(true)}
+                    className={`control-btn ${showRSISettings ? 'active' : ''}`}
+                    title="Clic: RSI (Alternar) | Doble Clic: Configurar"
+                  >
+                    <TrendingDown size={16} />
+                  </button>
+                  {showRSISettings && (
+                    <div style={{ position: 'absolute', left: '100%', top: 0, marginLeft: '8px', zIndex: 1000 }}>
+                      <RSISettings
+                        config={rsiConfig}
+                        onChange={setRSIConfig}
+                        onClose={() => setShowRSISettings(false)}
+                      />
+                    </div>
+                  )}
+                </div>
                 <div className="controls-divider" />
                 <button
                   onClick={() => chartComponentRef.current?.removeLastDrawing()}
@@ -763,108 +816,10 @@ function Dashboard() {
                     <div className="ml-3 flex flex-col">
                       <span className="text-amber-400 text-sm font-semibold">Error al cargar datos</span>
                       <span className="text-slate-500 text-xs mt-1">{loadError}</span>
-                    </div>
-                  </div>
-                )}
-
-                <DrawingStyleModal
-                  selectedStyle={selectedCurveStyle}
-                  modalPosition={curveModalPosition}
-                  modalAnchor={curveModalAnchor}
-                  onPointerDown={handleModalPointerDown}
-                  onPointerMove={handleModalPointerMove}
-                  onPointerUp={handleModalPointerUp}
-                  onClose={() => {
-                    setSelectedCurveStyle(null);
-                    setCurveModalAnchor(null);
-                    chartComponentRef.current?.clearSelection();
-                  }}
-                  onChangeStyle={updateSelectedCurveStyle}
-                />
-                {selectedFiboSettings && (
-                  <div
-                    data-fibo-modal="true"
-                    style={{
-                      position: 'absolute',
-                      left: `${typeof fiboModalPosition?.x === 'number' ? fiboModalPosition.x : Math.max(12, (fiboModalAnchor?.x ?? 0) + 12)}px`,
-                      top: `${typeof fiboModalPosition?.y === 'number' ? fiboModalPosition.y : Math.max(12, (fiboModalAnchor?.y ?? 0) - 12)}px`,
-                      zIndex: 20,
-                    }}
-                    onPointerDown={handleFiboModalPointerDown}
-                    onPointerMove={handleFiboModalPointerMove}
-                    onPointerUp={handleFiboModalPointerUp}
-                    onPointerCancel={handleFiboModalPointerUp}
-                  >
-                    <FiboSettings
-                      key={selectedFiboSettings.id ?? 'fibo-selected'}
-                      levels={selectedFiboSettings.levels}
-                      onChange={updateSelectedFibonacciLevels}
-                      onClose={() => {
-                        setSelectedFiboSettings(null);
-                        setFiboModalAnchor(null);
-                        chartComponentRef.current?.clearSelection();
-                      }}
-                    />
-                  </div>
-                )}
-
-                <TradingChart
-                  ref={chartComponentRef}
-                  data={visibleData}
-                  drawingMode={drawingMode}
-                  onDrawingComplete={() => setDrawingMode(null)}
-                  activePosition={activePosition}
-                  onNeedMoreData={replayActive ? undefined : handleNeedMoreData}
-                  focusIndex={selectingStart && !replayActive ? replayStartInput : null}
-                  priceDecimals={symbolInfo?.decimals || 5}
-                  minMove={symbolInfo?.minMove || 0.00001}
-                  onSLTPDrag={replayActive ? handleSLTPDrag : undefined}
-                  dataKey={selectedSymbol}
-                  fiboLevels={fiboLevels}
-                  pipMultiplier={symbolInfo?.pipMult || 10000}
-                  lotSize={lotSize}
-                  pipValue={symbolInfo?.pipValue || 10}
-                  showSessions={showSessions}
-                  sessionsConfig={sessionsConfig}
-                  crosshairMode={crosshairMode}
-                  crosshairVisible={crosshairVisible}
-                  onSelectionChange={handleSelectionChange}
-                />
-              </div>
-
-              {isLoadingMore && (
-                <div className="absolute top-4 right-4 z-10 flex items-center gap-2 px-3 py-1.5 bg-blue-600/20 border border-blue-500/30 rounded-lg backdrop-blur-md">
-                  <Loader2 size={14} className="animate-spin text-blue-400" />
-                  <span className="text-[11px] font-semibold text-blue-300">Cargando más datos...</span>
-                </div>
-              )}
-            </div>
-
-            {selectingStart && !replayActive && (
-              <div className="replay-start-bar flex-wrap">
-                {isLoadingMore ? (
-                  <>
-                    <Loader2 size={14} className="animate-spin text-blue-400" />
-                    <span className="text-[11px] font-semibold text-slate-300">Cargando datos completos para replay...</span>
-                  </>
-                ) : (
-                  <>
-                    <div className="flex items-center gap-2 md:mr-4 shrink-0">
-                      <Rewind size={14} className="text-blue-400 hidden sm:block" />
-                      <span className="text-[10px] md:text-[11px] font-semibold text-slate-300 whitespace-nowrap">Punto de inicio:</span>
-                    </div>
-                    <input
-                      type="range"
-                      min="0"
-                      max={Math.max((chartData?.length || 1) - 1, 0)}
-                      value={Math.min(replayStartInput, (chartData?.length || 1) - 1)}
-                      onChange={(e) => setReplayStartInput(Number.parseInt(e.target.value, 10))}
-                      className="timeline-slider flex-1 min-w-[150px]"
-                    />
-                    <span className="text-[10px] font-mono text-slate-400 min-w-[70px] md:min-w-[90px] text-center shrink-0">
-                      {replayStartInput.toLocaleString()} / {(chartData?.length || 0).toLocaleString()}
-                    </span>
-                    <button
+</div>
+</div>
+                <div className="controls-divider" />
+                <button
                       onClick={handleEnterReplay}
                       className="md:ml-2 px-3 md:px-4 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-[10px] md:text-[11px] font-bold rounded-lg transition-all whitespace-nowrap shrink-0"
                     >
@@ -965,6 +920,31 @@ function Dashboard() {
           </aside>
         </div>
       </main>
+
+      <TradingChart
+              ref={chartComponentRef}
+              data={visibleData}
+              drawingMode={drawingMode}
+              activePosition={activePosition}
+              focusIndex={absoluteIndex}
+              priceDecimals={symbolInfo?.decimals || 5}
+              minMove={symbolInfo?.minMove || 0.00001}
+              pipMultiplier={symbolInfo?.pipMult || 10000}
+              lotSize={lotSize}
+              pipValue={symbolInfo?.pipValue || 10}
+              onSLTPDrag={handleSLTPDrag}
+              dataKey={`${selectedSymbol}-${selectedTF}-${loadedRange?.start}-${loadedRange?.end}`}
+              fiboLevels={fiboLevels}
+              showSessions={showSessions}
+              sessionsConfig={sessionsConfig}
+              crosshairMode={crosshairMode}
+              crosshairVisible={crosshairVisible}
+              maConfig={maConfig}
+              rsiConfig={rsiConfig}
+              rsiVisible={rsiVisible}
+              onDrawingComplete={() => setDrawingMode(null)}
+              onSelectionChange={handleSelectionChange}
+            />
 
       <SettingsModal
         isOpen={isSettingsOpen}

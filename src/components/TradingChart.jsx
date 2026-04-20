@@ -1,5 +1,7 @@
 import React, { useEffect, useRef, forwardRef, useImperativeHandle } from 'react';
-import { createChart, CandlestickSeries } from 'lightweight-charts';
+import { createChart, CandlestickSeries, LineSeries, HistogramSeries } from 'lightweight-charts';
+import { calculateSMA, calculateEMA } from './MovingAverageSettings';
+import { calculateRSI } from './RSISettings';
 
 function hexToFill(hex, alpha = 0.08) {
   const r = Number.parseInt(hex.slice(1, 3), 16);
@@ -1052,6 +1054,9 @@ const TradingChart = forwardRef(({
   showSessions = false, sessionsConfig = null,
   crosshairMode = 0,
   crosshairVisible = true,
+  maConfig = [],
+  rsiConfig = null,
+  rsiVisible = false,
   onDrawingComplete,
   onSelectionChange,
 }, ref) => {
@@ -1078,6 +1083,11 @@ const TradingChart = forwardRef(({
   const fiboLevelsRef = useRef(fiboLevels);
   const crosshairModeRef = useRef(crosshairMode);
   const crosshairVisibleRef = useRef(crosshairVisible);
+  const maConfigRef = useRef(maConfig);
+  const maSeriesRefs = useRef([]);
+  const rsiConfigRef = useRef(rsiConfig);
+  const rsiPaneRef = useRef(null);
+  const rsiVisibleRef = useRef(rsiVisible);
 
   const drawingsRef = useRef([]);
   const selectedDrawingIdRef = useRef(null);
@@ -1108,6 +1118,9 @@ const TradingChart = forwardRef(({
   useEffect(() => { onSLTPDragRef.current = onSLTPDrag; }, [onSLTPDrag]);
   useEffect(() => { onSelectionChangeRef.current = onSelectionChange; }, [onSelectionChange]);
   useEffect(() => { fiboLevelsRef.current = fiboLevels; }, [fiboLevels]);
+  useEffect(() => { maConfigRef.current = maConfig; }, [maConfig]);
+  useEffect(() => { rsiConfigRef.current = rsiConfig; }, [rsiConfig]);
+  useEffect(() => { rsiVisibleRef.current = rsiVisible; }, [rsiVisible]);
   useEffect(() => {
     crosshairModeRef.current = crosshairMode;
     crosshairVisibleRef.current = crosshairVisible;
@@ -1127,6 +1140,55 @@ const TradingChart = forwardRef(({
       sessionsPrimitiveRef.current.updateData(data, showSessions, sessionsConfig);
     }
   }, [data, showSessions, sessionsConfig]);
+
+  useEffect(() => {
+    const chart = chartRef.current;
+    if (!chart || !data || data.length === 0) return;
+    maSeriesRefs.current.forEach(ref => {
+      try { chart.removeSeries(ref); } catch {}
+    });
+    maSeriesRefs.current = [];
+    if (!maConfig || maConfig.length === 0) return;
+    maConfig.forEach(ma => {
+      const maData = ma.type === 'EMA'
+        ? calculateEMA(data, ma.period)
+        : calculateSMA(data, ma.period);
+      if (!maData || maData.length === 0) return;
+      const lineSeries = chart.addSeries(LineSeries, {
+        color: ma.color,
+        lineWidth: ma.lineWidth || 2,
+        priceLineVisible: false,
+        crosshairMarkerVisible: false,
+        lastValueVisible: false,
+      });
+      lineSeries.setData(maData);
+      maSeriesRefs.current.push(lineSeries);
+    });
+  }, [maConfig, data]);
+
+  useEffect(() => {
+    const chart = chartRef.current;
+    if (!chart || !data || data.length === 0) return;
+    rsiPaneRef.current?.forEach(ref => {
+      try { chart.removeSeries(ref); } catch {}
+    });
+    rsiPaneRef.current = [];
+    if (!rsiVisibleRef.current || !rsiConfig || !rsiConfig.period) return;
+    const rsiData = calculateRSI(data, rsiConfig.period);
+    if (!rsiData || rsiData.length === 0) return;
+    const rsiSeries = chart.addSeries(LineSeries, {
+      color: rsiConfig.color || '#8b5cf6',
+      lineWidth: rsiConfig.lineWidth || 2,
+      priceLineVisible: false,
+      lastValueVisible: true,
+      priceScaleId: 'rsi',
+    });
+    rsiSeries.setData(rsiData);
+    rsiPaneRef.current = [rsiSeries];
+    chart.priceScale('rsi').applyOptions({
+      scaleMargins: { top: 0.8, bottom: 0 },
+    });
+  }, [rsiConfig, data, rsiVisible]);
 
   useEffect(() => {
     priceDecimalsRef.current = priceDecimals;
@@ -1544,6 +1606,67 @@ const TradingChart = forwardRef(({
     const sessionsPrim = new SessionsPrimitive(dataRef.current, showSessions, sessionsConfig);
     candlestickSeries.attachPrimitive(sessionsPrim);
     sessionsPrimitiveRef.current = sessionsPrim;
+
+    // --- Moving Averages ---
+    const maSeriesRefsArr = [];
+    const updateMovingAverages = (config, chartInstance) => {
+      maSeriesRefsArr.forEach(ref => {
+        try { chartInstance.removeSeries(ref); } catch {}
+      });
+      maSeriesRefsArr.length = 0;
+      if (!config || config.length === 0 || !dataRef.current || dataRef.current.length === 0) return;
+      config.forEach(ma => {
+        const maData = ma.type === 'EMA'
+          ? calculateEMA(dataRef.current, ma.period)
+          : calculateSMA(dataRef.current, ma.period);
+        if (!maData || maData.length === 0) return;
+        const lineSeries = chartInstance.addSeries(LineSeries, {
+          color: ma.color,
+          lineWidth: ma.lineWidth || 2,
+          priceLineVisible: false,
+          crosshairMarkerVisible: false,
+          lastValueVisible: false,
+        });
+        lineSeries.setData(maData);
+        maSeriesRefsArr.push(lineSeries);
+      });
+      maSeriesRefs.current = maSeriesRefsArr;
+    };
+    updateMovingAverages(maConfigRef.current, chart);
+    const cleanupMA = () => {
+      maSeriesRefsArr.forEach(ref => {
+        try { chart.removeSeries(ref); } catch {}
+      });
+      maSeriesRefsArr.length = 0;
+    };
+
+    // --- RSI (as line on separate price scale) ---
+    const rsiSeriesRefArr = [];
+    const createRSISeries = (config, chartInstance) => {
+      rsiSeriesRefArr.forEach(ref => {
+        try { chartInstance.removeSeries(ref); } catch {}
+      });
+      rsiSeriesRefArr.length = 0;
+      if (!config || !dataRef.current || dataRef.current.length === 0) return;
+      const rsiData = calculateRSI(dataRef.current, config.period);
+      if (!rsiData || rsiData.length === 0) return;
+      const rsiSeries = chartInstance.addSeries(LineSeries, {
+        color: config.color || '#8b5cf6',
+        lineWidth: config.lineWidth || 2,
+        priceLineVisible: false,
+        lastValueVisible: true,
+        priceScaleId: 'rsi',
+      });
+      rsiSeries.setData(rsiData);
+      rsiSeriesRefArr.push(rsiSeries);
+      rsiPaneRef.current = rsiSeriesRefArr;
+      chartInstance.priceScale('rsi').applyOptions({
+        scaleMargins: { top: 0.8, bottom: 0 },
+      });
+    };
+    if (rsiConfigRef.current) {
+      createRSISeries(rsiConfigRef.current, chart);
+    }
 
     // --- Drawing helpers ---
     let previewLines = [];
