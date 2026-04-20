@@ -2,6 +2,7 @@ import React, { useEffect, useRef, forwardRef, useImperativeHandle } from 'react
 import { createChart, CandlestickSeries, LineSeries, HistogramSeries } from 'lightweight-charts';
 import { calculateSMA, calculateEMA } from './MovingAverageSettings';
 import { calculateRSI } from './RSISettings';
+import { calculateStochastic } from './StochasticSettings';
 
 function hexToFill(hex, alpha = 0.08) {
   const r = Number.parseInt(hex.slice(1, 3), 16);
@@ -1057,6 +1058,8 @@ const TradingChart = forwardRef(({
   maConfig = [],
   rsiConfig = null,
   rsiVisible = false,
+  stochConfig = null,
+  stochVisible = false,
   onDrawingComplete,
   onSelectionChange,
 }, ref) => {
@@ -1088,6 +1091,9 @@ const TradingChart = forwardRef(({
   const rsiConfigRef = useRef(rsiConfig);
   const rsiPaneRef = useRef(null);
   const rsiVisibleRef = useRef(rsiVisible);
+  const stochConfigRef = useRef(stochConfig);
+  const stochPaneRef = useRef(null);
+  const stochVisibleRef = useRef(stochVisible);
 
   const drawingsRef = useRef([]);
   const selectedDrawingIdRef = useRef(null);
@@ -1121,6 +1127,8 @@ const TradingChart = forwardRef(({
   useEffect(() => { maConfigRef.current = maConfig; }, [maConfig]);
   useEffect(() => { rsiConfigRef.current = rsiConfig; }, [rsiConfig]);
   useEffect(() => { rsiVisibleRef.current = rsiVisible; }, [rsiVisible]);
+  useEffect(() => { stochConfigRef.current = stochConfig; }, [stochConfig]);
+  useEffect(() => { stochVisibleRef.current = stochVisible; }, [stochVisible]);
   useEffect(() => {
     crosshairModeRef.current = crosshairMode;
     crosshairVisibleRef.current = crosshairVisible;
@@ -1189,6 +1197,39 @@ const TradingChart = forwardRef(({
       scaleMargins: { top: 0.8, bottom: 0 },
     });
   }, [rsiConfig, data, rsiVisible]);
+
+  useEffect(() => {
+    const chart = chartRef.current;
+    if (!chart || !data || data.length === 0) return;
+    stochPaneRef.current?.forEach(ref => {
+      try { chart.removeSeries(ref); } catch {}
+    });
+    stochPaneRef.current = [];
+    if (!stochVisibleRef.current || !stochConfig || !stochConfig.kPeriod) return;
+    const stochData = calculateStochastic(data, stochConfig.kPeriod, stochConfig.dPeriod);
+    if (!stochData || stochData.length === 0) return;
+    const kSeries = chart.addSeries(LineSeries, {
+      color: stochConfig.colorK || '#3b82f6',
+      lineWidth: stochConfig.lineWidth || 2,
+      priceLineVisible: false,
+      lastValueVisible: true,
+      priceScaleId: 'stoch',
+    });
+    const dData = stochData.map(d => ({ time: d.time, value: d.d }));
+    kSeries.setData(stochData.map(d => ({ time: d.time, value: d.k })));
+    const dSeries = chart.addSeries(LineSeries, {
+      color: stochConfig.colorD || '#f97316',
+      lineWidth: stochConfig.lineWidth || 2,
+      priceLineVisible: false,
+      lastValueVisible: false,
+      priceScaleId: 'stoch',
+    });
+    dSeries.setData(dData);
+    stochPaneRef.current = [kSeries, dSeries];
+    chart.priceScale('stoch').applyOptions({
+      scaleMargins: { top: 0.85, bottom: 0 },
+    });
+  }, [stochConfig, data, stochVisible]);
 
   useEffect(() => {
     priceDecimalsRef.current = priceDecimals;

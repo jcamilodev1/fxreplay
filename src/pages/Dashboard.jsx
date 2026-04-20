@@ -5,7 +5,7 @@ import {
   Minus, MousePointer2, RectangleHorizontal,
   GitBranch, Undo2, Trash2, Loader2, Rewind, Spline,
   ArrowBigLeftDash, ArrowBigRightDash, AlertTriangle, Clock, Plus, Magnet, ArrowLeftRight,
-  TrendingUp, TrendingDown,
+  TrendingUp, TrendingDown, Activity,
 } from 'lucide-react';
 import TradingChart from '../components/TradingChart';
 import Sidebar from '../components/Sidebar';
@@ -17,6 +17,7 @@ import FiboSettings from '../components/FiboSettings';
 import SessionsSettings from '../components/SessionsSettings';
 import MovingAverageSettings from '../components/MovingAverageSettings';
 import RSISettings from '../components/RSISettings';
+import StochasticSettings from '../components/StochasticSettings';
 import { useBacktest } from '../hooks/useBacktest';
 import SettingsModal from '../components/SettingsModal';
 import DrawingStyleModal from '../components/DrawingStyleModal';
@@ -118,6 +119,12 @@ function Dashboard() {
     setShowRSISettings,
     rsiVisible,
     setRSIVisible,
+    stochConfig,
+    setStochConfig,
+    showStochSettings,
+    setShowStochSettings,
+    stochVisible,
+    setStochVisible,
   } = useDrawingState();
 
   const [slPrice, setSlPrice] = useState('');
@@ -785,6 +792,25 @@ function Dashboard() {
                     </div>
                   )}
                 </div>
+                <div style={{ position: 'relative' }}>
+                  <button
+                    onClick={() => setShowStochSettings(v => !v)}
+                    onDoubleClick={() => setShowStochSettings(true)}
+                    className={`control-btn ${showStochSettings ? 'active' : ''}`}
+                    title="Clic: Estocástico (Alternar) | Doble Clic: Configurar"
+                  >
+                    <Activity size={16} />
+                  </button>
+                  {showStochSettings && (
+                    <div style={{ position: 'absolute', left: '100%', top: 0, marginLeft: '8px', zIndex: 1000 }}>
+                      <StochasticSettings
+                        config={stochConfig}
+                        onChange={setStochConfig}
+                        onClose={() => setShowStochSettings(false)}
+                      />
+                    </div>
+                  )}
+                </div>
                 <div className="controls-divider" />
                 <button
                   onClick={() => chartComponentRef.current?.removeLastDrawing()}
@@ -942,6 +968,8 @@ function Dashboard() {
               maConfig={maConfig}
               rsiConfig={rsiConfig}
               rsiVisible={rsiVisible}
+              stochConfig={stochConfig}
+              stochVisible={stochVisible}
               onDrawingComplete={() => setDrawingMode(null)}
               onSelectionChange={handleSelectionChange}
             />

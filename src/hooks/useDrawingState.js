@@ -3,6 +3,7 @@ import { loadFiboLevels } from '../components/FiboSettings';
 import { loadSessionsConfig } from '../components/SessionsSettings';
 import { loadMAConfig } from '../components/MovingAverageSettings';
 import { loadRSIConfig } from '../components/RSISettings';
+import { loadStochConfig } from '../components/StochasticSettings';
 
 export function useDrawingState() {
   const [drawingMode, setDrawingMode] = useState(null);
@@ -18,6 +19,9 @@ export function useDrawingState() {
   const [rsiConfig, setRSIConfig] = useState(loadRSIConfig);
   const [showRSISettings, setShowRSISettings] = useState(false);
   const [rsiVisible, setRSIVisible] = useState(!!loadRSIConfig?.period);
+  const [stochConfig, setStochConfig] = useState(loadStochConfig);
+  const [showStochSettings, setShowStochSettings] = useState(false);
+  const [stochVisible, setStochVisible] = useState(!!loadStochConfig?.kPeriod);
 
   return {
     drawingMode,
@@ -46,5 +50,11 @@ export function useDrawingState() {
     setShowRSISettings,
     rsiVisible,
     setRSIVisible,
+    stochConfig,
+    setStochConfig,
+    showStochSettings,
+    setShowStochSettings,
+    stochVisible,
+    setStochVisible,
   };
 }
