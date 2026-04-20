@@ -2,6 +2,7 @@ import { useState, useCallback, useRef } from 'react';
 import { getFromDB, setToDB } from '../utils/indexedDB';
 
 const INITIAL_CHUNKS_TO_LOAD = 2;
+const DEFAULT_DATA_URL = '/data';
 
 export const useChunkedData = () => {
   const [data, setData] = useState([]);
@@ -15,6 +16,51 @@ export const useChunkedData = () => {
   const currentKeyRef = useRef('');
   const metaRef = useRef(null);
 
+  const getDataBaseUrls = useCallback(() => {
+    const envBaseUrl = (import.meta.env.VITE_DATA_URL || '').replace(/\/$/, '');
+    const fallbackBaseUrl = DEFAULT_DATA_URL;
+    if (!envBaseUrl || envBaseUrl === fallbackBaseUrl) return [fallbackBaseUrl];
+    return [envBaseUrl, fallbackBaseUrl];
+  }, []);
+
+  const parseJsonResponse = useCallback(async (res, url) => {
+    if (!res.ok) {
+      throw new Error(`Request failed (${res.status}) for ${url}`);
+    }
+
+    const contentType = (res.headers.get('content-type') || '').toLowerCase();
+    const text = await res.text();
+
+    if (!contentType.includes('application/json')) {
+      const snippet = text.slice(0, 120).replace(/\s+/g, ' ').trim();
+      throw new Error(`Expected JSON but received "${contentType || 'unknown'}" from ${url}: ${snippet}`);
+    }
+
+    try {
+      return JSON.parse(text);
+    } catch (err) {
+      throw new Error(`Invalid JSON from ${url}: ${err.message}`);
+    }
+  }, []);
+
+  const fetchJsonWithFallback = useCallback(async (relativePath, label) => {
+    const baseUrls = getDataBaseUrls();
+    let lastError = null;
+
+    for (const baseUrl of baseUrls) {
+      const url = `${baseUrl}/${relativePath}`;
+      try {
+        const res = await fetch(url);
+        return await parseJsonResponse(res, url);
+      } catch (err) {
+        lastError = err;
+        console.warn(`Error loading ${label} from ${url}`, err);
+      }
+    }
+
+    throw new Error(`Failed to load ${label}. ${lastError?.message || 'Unknown error'}`);
+  }, [getDataBaseUrls, parseJsonResponse]);
+
   const buildMergedData = useCallback(() => {
     const sorted = [...loadedChunksRef.current].sort((a, b) => a - b);
     const merged = [];
@@ -26,27 +72,21 @@ export const useChunkedData = () => {
   }, []);
 
   const fetchChunk = useCallback(async (baseKey, chunkIdx) => {
-    const baseUrl = (import.meta.env.VITE_DATA_URL || '/data').replace(/\/$/, '');
-    const url = `${baseUrl}/${baseKey}_${chunkIdx}.json`;
+    const relativePath = `${baseKey}_${chunkIdx}.json`;
     const dbKey = `${baseKey}_${chunkIdx}`;
     
     try {
       const cachedData = await getFromDB('chunks', dbKey);
       if (cachedData) return cachedData;
-      
-      const res = await fetch(url);
-      if (!res.ok) throw new Error(`Chunk not found: ${url}`);
-      const data = await res.json();
+
+      const data = await fetchJsonWithFallback(relativePath, `chunk ${dbKey}`);
       
       setToDB('chunks', dbKey, data);
       return data;
     } catch (err) {
-      console.warn(`Error fetching chunk ${dbKey}, intentando fallback directo...`, err);
-      const res = await fetch(url);
-      if (!res.ok) throw new Error(`Chunk not found: ${url}`);
-      return await res.json();
+      throw new Error(`Error fetching chunk ${dbKey}: ${err.message}`);
     }
-  }, []);
+  }, [fetchJsonWithFallback]);
 
   const loadSymbol = useCallback(async (symbol, tf) => {
     const baseKey = `${symbol}_${tf.toLowerCase()}`;
@@ -60,10 +100,7 @@ export const useChunkedData = () => {
     currentKeyRef.current = baseKey;
 
     try {
-      const baseUrl = (import.meta.env.VITE_DATA_URL || '/data').replace(/\/$/, '');
-      const metaRes = await fetch(`${baseUrl}/${baseKey}_meta.json`);
-      if (!metaRes.ok) throw new Error(`No data for ${symbol} ${tf}`);
-      const metaData = await metaRes.json();
+      const metaData = await fetchJsonWithFallback(`${baseKey}_meta.json`, `meta ${baseKey}`);
       metaRef.current = metaData;
       setMeta(metaData);
 

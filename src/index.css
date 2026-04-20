@@ -1,5 +1,5 @@
-@import "tailwindcss";
 @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;700&display=swap');
+@import "tailwindcss";
 
 :root {
   /* Ultra-Premium Color Palette */
@@ -520,12 +520,19 @@ body {
   z-index: 5;
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  padding: 6px;
+  gap: 5px;
+  padding: 8px;
   background: rgba(13, 15, 20, 0.85);
   border: 1px solid var(--glass-edge);
-  border-radius: 14px;
+  border-radius: 16px;
   backdrop-filter: blur(12px);
+}
+
+.chart-controls.is-horizontal {
+  flex-direction: row;
+  align-items: center;
+  flex-wrap: wrap;
+  max-width: calc(100% - 24px);
 }
 
 /* Responsive chart controls */
@@ -560,9 +567,15 @@ body {
   margin: 2px auto;
 }
 
+.chart-controls.is-horizontal .controls-divider {
+  width: 1px;
+  height: 24px;
+  margin: 0 2px;
+}
+
 .control-btn {
-  width: 36px;
-  height: 36px;
+  width: 38px;
+  height: 38px;
   background: transparent;
   border: 1px solid transparent;
   border-radius: 10px;
