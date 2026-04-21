@@ -837,15 +837,16 @@ function Dashboard() {
                 )}
 
                 {loadError && !isLoading && (
-                  <div className="chart-loading-overlay">
-                    <AlertTriangle size={32} className="text-amber-500" />
-                    <div className="ml-3 flex flex-col">
-                      <span className="text-amber-400 text-sm font-semibold">Error al cargar datos</span>
-                      <span className="text-slate-500 text-xs mt-1">{loadError}</span>
-</div>
-</div>
-                <div className="controls-divider" />
-                <button
+                  <>
+                    <div className="chart-loading-overlay">
+                      <AlertTriangle size={32} className="text-amber-500" />
+                      <div className="ml-3 flex flex-col">
+                        <span className="text-amber-400 text-sm font-semibold">Error al cargar datos</span>
+                        <span className="text-slate-500 text-xs mt-1">{loadError}</span>
+                      </div>
+                    </div>
+                    <div className="controls-divider" />
+                    <button
                       onClick={handleEnterReplay}
                       className="md:ml-2 px-3 md:px-4 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-[10px] md:text-[11px] font-bold rounded-lg transition-all whitespace-nowrap shrink-0"
                     >
@@ -854,7 +855,6 @@ function Dashboard() {
                   </>
                 )}
               </div>
-            )}
 
             {replayActive && (
               <div className="replay-start-bar flex-wrap">
@@ -933,6 +933,7 @@ function Dashboard() {
                 </div>
               </div>
             )}
+            </div>
           </section>
 
           {/* Right Sidebar */}
