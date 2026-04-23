@@ -5,7 +5,7 @@ import {
   Minus, MousePointer2, RectangleHorizontal,
   GitBranch, Undo2, Trash2, Loader2, Rewind, Spline,
   ArrowBigLeftDash, ArrowBigRightDash, AlertTriangle, Clock, Plus, Magnet, ArrowLeftRight,
-  TrendingUp, TrendingDown, Activity,
+  TrendingUp, TrendingDown, Activity, Maximize2, Minimize2,
 } from 'lucide-react';
 import TradingChart from '../components/TradingChart';
 import Sidebar from '../components/Sidebar';
@@ -131,6 +131,7 @@ function Dashboard() {
     setStochVisible,
   } = useDrawingState();
 
+  const [theaterMode, setTheaterMode] = useState(false);
   const [slPrice, setSlPrice] = useState('');
   const [tpPrice, setTpPrice] = useState('');
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
@@ -654,10 +655,17 @@ function Dashboard() {
           currentBalance={currentBalance}
         />
 
-        <div className="dashboard-grid glass-blur">
+        <div className={`dashboard-grid glass-blur${theaterMode ? ' theater-mode' : ''}`}>
           {/* Chart Section */}
           <section className="chart-section">
             <div className="chart-card animate" ref={chartCardRef}>
+              <button
+                onClick={() => setTheaterMode(v => !v)}
+                className="theater-btn"
+                title={theaterMode ? 'Salir del modo teatro' : 'Modo teatro'}
+              >
+                {theaterMode ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
+              </button>
               <div
                 ref={controlsRef}
                 className={`chart-controls ${controlsOrientation === 'horizontal' ? 'is-horizontal' : ''}`}
