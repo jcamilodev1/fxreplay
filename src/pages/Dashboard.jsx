@@ -103,6 +103,8 @@ function Dashboard() {
     setCrosshairVisible,
     fiboLevels,
     setFiboLevels,
+    fiboVisible,
+    setFiboVisible,
     showSessions,
     setShowSessions,
     sessionsConfig,
@@ -111,6 +113,8 @@ function Dashboard() {
     setShowSessionsSettings,
     maConfig,
     setMAConfig,
+    maVisible,
+    setMAVisible,
     showMASettings,
     setShowMASettings,
     rsiConfig,
@@ -728,16 +732,17 @@ function Dashboard() {
                 </button>
                 <div style={{ position: 'relative' }}>
                   <button
-                    onClick={() => setDrawingMode(drawingMode === 'fibonacci' ? null : 'fibonacci')}
-                    className={`control-btn ${drawingMode === 'fibonacci' ? 'active' : ''}`}
-                    title="Fibonacci"
+                    onClick={(e) => { if (e.detail >= 2) return; setFiboVisible(v => !v); }}
+                    onDoubleClick={() => setDrawingMode(drawingMode === 'fibonacci' ? null : 'fibonacci')}
+                    className={`control-btn ${fiboVisible ? 'active' : ''}`}
+                    title="Clic: Fibonacci (Mostrar/Ocultar) | Doble Clic: Dibujar"
                   >
                     <GitBranch size={18} />
                   </button>
                 </div>
                 <div style={{ position: 'relative' }}>
                   <button
-                    onClick={() => setShowSessions(v => !v)}
+                    onClick={(e) => { if (e.detail >= 2) return; setShowSessions(v => !v); }}
                     onDoubleClick={() => setShowSessionsSettings(v => !v)}
                     className={`control-btn ${showSessions ? 'active' : ''}`}
                     title="Clic: Sesiones (Alternar) | Doble Clic: Configurar"
@@ -756,10 +761,10 @@ function Dashboard() {
                 </div>
                 <div style={{ position: 'relative' }}>
                   <button
-                    onClick={() => setShowMASettings(v => !v)}
+                    onClick={(e) => { if (e.detail >= 2) return; setMAVisible(v => !v); }}
                     onDoubleClick={() => setShowMASettings(true)}
-                    className={`control-btn ${showMASettings ? 'active' : ''}`}
-                    title="Clic: Medias Móviles (Alternar) | Doble Clic: Configurar"
+                    className={`control-btn ${maVisible ? 'active' : ''}`}
+                    title="Clic: Medias Móviles (Mostrar/Ocultar) | Doble Clic: Configurar"
                   >
                     <TrendingUp size={16} />
                   </button>
@@ -767,7 +772,7 @@ function Dashboard() {
                     <div style={{ position: 'absolute', left: '100%', top: 0, marginLeft: '8px', zIndex: 1000 }}>
                       <MovingAverageSettings
                         config={maConfig}
-                        onChange={setMAConfig}
+                        onChange={(cfg) => { setMAConfig(cfg); setMAVisible(cfg.length > 0); }}
                         onClose={() => setShowMASettings(false)}
                       />
                     </div>
@@ -775,10 +780,10 @@ function Dashboard() {
                 </div>
                 <div style={{ position: 'relative' }}>
                   <button
-                    onClick={() => setShowRSISettings(v => !v)}
+                    onClick={(e) => { if (e.detail >= 2) return; setRSIVisible(v => !v); }}
                     onDoubleClick={() => setShowRSISettings(true)}
-                    className={`control-btn ${showRSISettings ? 'active' : ''}`}
-                    title="Clic: RSI (Alternar) | Doble Clic: Configurar"
+                    className={`control-btn ${rsiVisible ? 'active' : ''}`}
+                    title="Clic: RSI (Mostrar/Ocultar) | Doble Clic: Configurar"
                   >
                     <TrendingDown size={16} />
                   </button>
@@ -786,7 +791,7 @@ function Dashboard() {
                     <div style={{ position: 'absolute', left: '100%', top: 0, marginLeft: '8px', zIndex: 1000 }}>
                       <RSISettings
                         config={rsiConfig}
-                        onChange={setRSIConfig}
+                        onChange={(cfg) => { setRSIConfig(cfg); setRSIVisible(!!cfg?.period); }}
                         onClose={() => setShowRSISettings(false)}
                       />
                     </div>
@@ -794,10 +799,10 @@ function Dashboard() {
                 </div>
                 <div style={{ position: 'relative' }}>
                   <button
-                    onClick={() => setShowStochSettings(v => !v)}
+                    onClick={(e) => { if (e.detail >= 2) return; setStochVisible(v => !v); }}
                     onDoubleClick={() => setShowStochSettings(true)}
-                    className={`control-btn ${showStochSettings ? 'active' : ''}`}
-                    title="Clic: Estocástico (Alternar) | Doble Clic: Configurar"
+                    className={`control-btn ${stochVisible ? 'active' : ''}`}
+                    title="Clic: Estocástico (Mostrar/Ocultar) | Doble Clic: Configurar"
                   >
                     <Activity size={16} />
                   </button>
@@ -805,7 +810,7 @@ function Dashboard() {
                     <div style={{ position: 'absolute', left: '100%', top: 0, marginLeft: '8px', zIndex: 1000 }}>
                       <StochasticSettings
                         config={stochConfig}
-                        onChange={setStochConfig}
+                        onChange={(cfg) => { setStochConfig(cfg); setStochVisible(!!cfg?.kPeriod); }}
                         onClose={() => setShowStochSettings(false)}
                       />
                     </div>
@@ -837,22 +842,90 @@ function Dashboard() {
                 )}
 
                 {loadError && !isLoading && (
-                  <>
-                    <div className="chart-loading-overlay">
-                      <AlertTriangle size={32} className="text-amber-500" />
-                      <div className="ml-3 flex flex-col">
-                        <span className="text-amber-400 text-sm font-semibold">Error al cargar datos</span>
-                        <span className="text-slate-500 text-xs mt-1">{loadError}</span>
-                      </div>
+                  <div className="chart-loading-overlay">
+                    <AlertTriangle size={32} className="text-amber-500" />
+                    <div className="ml-3 flex flex-col">
+                      <span className="text-amber-400 text-sm font-semibold">Error al cargar datos</span>
+                      <span className="text-slate-500 text-xs mt-1">{loadError}</span>
                     </div>
-                    <div className="controls-divider" />
-                    <button
-                      onClick={handleEnterReplay}
-                      className="md:ml-2 px-3 md:px-4 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-[10px] md:text-[11px] font-bold rounded-lg transition-all whitespace-nowrap shrink-0"
-                    >
-                      GO
-                    </button>
-                  </>
+                  </div>
+                )}
+
+                <DrawingStyleModal
+                  selectedStyle={selectedCurveStyle}
+                  modalPosition={curveModalPosition}
+                  modalAnchor={curveModalAnchor}
+                  onPointerDown={handleModalPointerDown}
+                  onPointerMove={handleModalPointerMove}
+                  onPointerUp={handleModalPointerUp}
+                  onClose={() => {
+                    setSelectedCurveStyle(null);
+                    setCurveModalAnchor(null);
+                    chartComponentRef.current?.clearSelection();
+                  }}
+                  onChangeStyle={updateSelectedCurveStyle}
+                />
+
+                {selectedFiboSettings && (
+                  <div
+                    data-fibo-modal="true"
+                    style={{
+                      position: 'absolute',
+                      left: `${typeof fiboModalPosition?.x === 'number' ? fiboModalPosition.x : Math.max(12, (fiboModalAnchor?.x ?? 0) + 12)}px`,
+                      top: `${typeof fiboModalPosition?.y === 'number' ? fiboModalPosition.y : Math.max(12, (fiboModalAnchor?.y ?? 0) - 12)}px`,
+                      zIndex: 20,
+                    }}
+                    onPointerDown={handleFiboModalPointerDown}
+                    onPointerMove={handleFiboModalPointerMove}
+                    onPointerUp={handleFiboModalPointerUp}
+                    onPointerCancel={handleFiboModalPointerUp}
+                  >
+                    <FiboSettings
+                      key={selectedFiboSettings.id ?? 'fibo-selected'}
+                      levels={selectedFiboSettings.levels}
+                      onChange={updateSelectedFibonacciLevels}
+                      onClose={() => {
+                        setSelectedFiboSettings(null);
+                        setFiboModalAnchor(null);
+                        chartComponentRef.current?.clearSelection();
+                      }}
+                    />
+                  </div>
+                )}
+
+                <TradingChart
+                  ref={chartComponentRef}
+                  data={visibleData}
+                  drawingMode={drawingMode}
+                  activePosition={activePosition}
+                  focusIndex={absoluteIndex}
+                  priceDecimals={symbolInfo?.decimals || 5}
+                  minMove={symbolInfo?.minMove || 0.00001}
+                  pipMultiplier={symbolInfo?.pipMult || 10000}
+                  lotSize={lotSize}
+                  pipValue={symbolInfo?.pipValue || 10}
+                  onSLTPDrag={handleSLTPDrag}
+                  onNeedMoreData={replayActive ? undefined : handleNeedMoreData}
+                  dataKey={`${selectedSymbol}-${selectedTF}-${loadedRange?.start}-${loadedRange?.end}`}
+                  fiboLevels={fiboVisible ? fiboLevels : []}
+                  showSessions={showSessions}
+                  sessionsConfig={sessionsConfig}
+                  crosshairMode={crosshairMode}
+                  crosshairVisible={crosshairVisible}
+                  maConfig={maVisible ? maConfig : []}
+                  rsiConfig={rsiConfig}
+                  rsiVisible={rsiVisible}
+                  stochConfig={stochConfig}
+                  stochVisible={stochVisible}
+                  onDrawingComplete={() => setDrawingMode(null)}
+                  onSelectionChange={handleSelectionChange}
+                />
+
+                {isLoadingMore && (
+                  <div className="absolute top-4 right-4 z-10 flex items-center gap-2 px-3 py-1.5 bg-blue-600/20 border border-blue-500/30 rounded-lg backdrop-blur-md">
+                    <Loader2 size={14} className="animate-spin text-blue-400" />
+                    <span className="text-[11px] font-semibold text-blue-300">Cargando más datos...</span>
+                  </div>
                 )}
               </div>
 
@@ -947,33 +1020,6 @@ function Dashboard() {
           </aside>
         </div>
       </main>
-
-      <TradingChart
-              ref={chartComponentRef}
-              data={visibleData}
-              drawingMode={drawingMode}
-              activePosition={activePosition}
-              focusIndex={absoluteIndex}
-              priceDecimals={symbolInfo?.decimals || 5}
-              minMove={symbolInfo?.minMove || 0.00001}
-              pipMultiplier={symbolInfo?.pipMult || 10000}
-              lotSize={lotSize}
-              pipValue={symbolInfo?.pipValue || 10}
-              onSLTPDrag={handleSLTPDrag}
-              dataKey={`${selectedSymbol}-${selectedTF}-${loadedRange?.start}-${loadedRange?.end}`}
-              fiboLevels={fiboLevels}
-              showSessions={showSessions}
-              sessionsConfig={sessionsConfig}
-              crosshairMode={crosshairMode}
-              crosshairVisible={crosshairVisible}
-              maConfig={maConfig}
-              rsiConfig={rsiConfig}
-              rsiVisible={rsiVisible}
-              stochConfig={stochConfig}
-              stochVisible={stochVisible}
-              onDrawingComplete={() => setDrawingMode(null)}
-              onSelectionChange={handleSelectionChange}
-            />
 
       <SettingsModal
         isOpen={isSettingsOpen}

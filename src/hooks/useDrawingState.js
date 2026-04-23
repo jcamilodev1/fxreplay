@@ -14,7 +14,9 @@ export function useDrawingState() {
   const [showSessions, setShowSessions] = useState(false);
   const [sessionsConfig, setSessionsConfig] = useState(loadSessionsConfig);
   const [showSessionsSettings, setShowSessionsSettings] = useState(false);
+  const [fiboVisible, setFiboVisible] = useState(true);
   const [maConfig, setMAConfig] = useState(loadMAConfig);
+  const [maVisible, setMAVisible] = useState(() => (loadMAConfig()?.length ?? 0) > 0);
   const [showMASettings, setShowMASettings] = useState(false);
   const [rsiConfig, setRSIConfig] = useState(loadRSIConfig);
   const [showRSISettings, setShowRSISettings] = useState(false);
@@ -32,6 +34,8 @@ export function useDrawingState() {
     setCrosshairVisible,
     fiboLevels,
     setFiboLevels,
+    fiboVisible,
+    setFiboVisible,
     showFiboSettings,
     setShowFiboSettings,
     showSessions,
@@ -42,6 +46,8 @@ export function useDrawingState() {
     setShowSessionsSettings,
     maConfig,
     setMAConfig,
+    maVisible,
+    setMAVisible,
     showMASettings,
     setShowMASettings,
     rsiConfig,

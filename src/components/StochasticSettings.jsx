@@ -50,7 +50,7 @@ function calculateStochastic(data, kPeriod = 14, dPeriod = 3) {
     }
     const d = sum / dPeriod;
     result.push({
-      time: data[i + kPeriod].time,
+      time: data[kPeriod - 1 + i].time,
       k: kValues[i],
       d: d,
     });
